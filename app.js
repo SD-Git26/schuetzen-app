@@ -11,9 +11,10 @@ const LAST_USER_KEY = 'hotshot-last-user';
 const TREND_WINDOW = 5;
 const TOMBSTONE_DAYS = 365;
 
-// Vorauswahl beim Eintrag, solange kein Standard festgelegt ist: 1.10 Luftgewehr.
-// Danach ist die zuletzt über „Anpassen“ gespeicherte Disziplin der Standard.
+// Vorauswahl beim Eintrag: der feste Standard (Häkchen unter „Anpassen“), sonst die zuletzt
+// gewählte Disziplin, beim allerersten Öffnen 1.10 Luftgewehr.
 const DEFAULT_DISC_ID = 'dsb-1.10';
+const lastDiscKey = userId => `hotshot-last-disc-${userId}`;
 
 // Reihenfolge = Anzeige in Optionen und Auswahl; selbst angelegte Wettkampfarten folgen danach
 const DEFAULT_COMPETITION_TYPES = [
@@ -62,8 +63,9 @@ function isValidState(s) {
 
 // Ergänzt fehlende Felder (z. B. aus älteren Backups)
 function normalizeState(s) {
+  // Fester Standard (Häkchen „Als Standard festlegen“); null = zuletzt gewählte Disziplin gilt
   if (!s.disciplines.some(d => d.id === s.defaultDisciplineId) && !isCatalogId(s.defaultDisciplineId)) {
-    s.defaultDisciplineId = DEFAULT_DISC_ID;
+    s.defaultDisciplineId = null;
   }
   delete s.lastDisciplineId;
   // Nicht selbst angepasste Disziplinen der DSB-Liste folgen immer dem aktuellen Stand der Liste
@@ -552,8 +554,14 @@ function knownLocations() {
   return [...set].sort((a, b) => a.localeCompare(b, 'de'));
 }
 
+function standardDisc() {
+  let last = null;
+  try { last = account && localStorage.getItem(lastDiscKey(account.userId)); } catch (e) { /* kein Speicher */ }
+  return discById(state.defaultDisciplineId) || discById(last) || discById(DEFAULT_DISC_ID);
+}
+
 function freshDraft() {
-  const d = discById(state.defaultDisciplineId) || discById(DEFAULT_DISC_ID);
+  const d = standardDisc();
   return {
     disciplineId: d ? d.id : null,
     date: todayISO(),
@@ -599,7 +607,7 @@ function renderEntry() {
   if (!ui.editId) {
     if (!dr.ageTouched) dr.ageClassId = state.ageClassId || '';
     if (!dr.discTouched) {
-      const std = discById(state.defaultDisciplineId) || discById(DEFAULT_DISC_ID);
+      const std = standardDisc();
       if (std && std.id !== dr.disciplineId) dr.disciplineId = std.id;
     }
   }
@@ -725,6 +733,8 @@ function renderEntry() {
   bindDiscCombo(document.getElementById('disc'), document.getElementById('disc-list'), d, id => {
     dr.disciplineId = id;
     dr.discTouched = true;
+    // Zuletzt gewählte Disziplin merken (gilt als Vorauswahl, solange kein fester Standard gesetzt ist)
+    try { localStorage.setItem(lastDiscKey(account.userId), id); } catch (e) { /* dann nur bis zum Schließen */ }
     ui.adjustDisc = false;
     render();
   });
@@ -1368,12 +1378,11 @@ function discEditForm(d, fixedName) {
           <option value="hits" ${d.hits ? 'selected' : ''}>Treffer (max. 1)</option>
         </select>
       </div>
-      ${fixedName ? '<p class="hint" style="margin:-6px 0 14px">Nach dem Speichern ist diese Disziplin beim Eintrag vorausgewählt.</p>' : `
       <label class="switch">
         <span>Als Standard festlegen</span>
-        <input type="checkbox" id="de-default" ${isDefault ? 'checked disabled' : ''}>
+        <input type="checkbox" id="de-default" ${isDefault ? 'checked' : ''}>
       </label>
-      ${isDefault ? '<p class="hint" style="margin:-8px 0 14px">Diese Disziplin ist beim Eintragen vorausgewählt. Um das zu ändern, lege eine andere Disziplin als Standard fest.</p>' : ''}`}
+      <p class="hint" style="margin:-8px 0 14px">Mit Häkchen ist diese Disziplin beim Eintrag immer vorausgewählt. Ohne festen Standard ist die zuletzt gewählte Disziplin vorausgewählt.</p>
       <div id="de-error" class="error" hidden></div>
       <div class="actions">
         <button class="btn" id="de-cancel">Abbrechen</button>
@@ -1392,9 +1401,7 @@ function bindDiscForm(id, onClose) {
     const shots = Number(document.getElementById('de-shots').value);
     const decimal = document.getElementById('de-decimal').value === '1';
     const hits = document.getElementById('de-decimal').value === 'hits';
-    // Beim „Anpassen“ im Eintrag (ohne Schalter) wird die Disziplin immer zum Standard
-    const defaultEl = document.getElementById('de-default');
-    const makeDefault = defaultEl ? defaultEl.checked : true;
+    const makeDefault = document.getElementById('de-default').checked;
     const err = document.getElementById('de-error');
     const fail = m => { err.hidden = false; err.textContent = m; };
 
@@ -1417,8 +1424,10 @@ function bindDiscForm(id, onClose) {
       touch(Object.assign(d, { series, shots, decimal, hits }, nameEl ? { name } : { adjusted: true }));
       toast('Disziplin gespeichert');
     }
-    if (makeDefault) {
-      state.defaultDisciplineId = d.id;
+    // Häkchen setzt den festen Standard, Entfernen hebt ihn auf (dann gilt die zuletzt gewählte Disziplin)
+    const newDefault = makeDefault ? d.id : (state.defaultDisciplineId === d.id ? null : state.defaultDisciplineId);
+    if (newDefault !== state.defaultDisciplineId) {
+      state.defaultDisciplineId = newDefault;
       state.settingsUpdatedAt = Date.now();
       ui.analysisDiscId = null;
     }
@@ -1977,6 +1986,7 @@ function endSession(message, keepData) {
       localStorage.removeItem(stateKey(account.userId));
       localStorage.removeItem(dirtyKey(account.userId));
       localStorage.removeItem(LAST_USER_KEY);
+      localStorage.removeItem(lastDiscKey(account.userId));
     } catch (e) { /* egal */ }
   }
   account = null;
@@ -1994,21 +2004,27 @@ async function boot() {
     if (Cloud.configured && last && last.userId) return startSession(null, last);
     return renderAuth();
   }
-  let session = null;
-  try { session = await Cloud.getSession(); } catch (e) { /* offline */ }
+  const { session, error, stored } = await Cloud.getSessionInfo();
   const last = readJSON(LAST_USER_KEY);
   if (session) {
     const cached = last && last.userId === session.user.id ? last : null;
     await startSession(session.user, cached);
-  } else if (last && last.userId && !navigator.onLine) {
+  } else if (last && last.userId && (!navigator.onLine || stored)) {
+    // Die gespeicherte Anmeldung ist noch da, konnte aber gerade nicht erneuert werden
+    // (z. B. Netz beim Öffnen noch nicht bereit). Weiterarbeiten – Supabase erneuert sie im Hintergrund.
     await startSession(null, last);
   } else {
-    renderAuth();
+    // Grund anzeigen, falls man vorher angemeldet war – hilft bei der Fehlersuche
+    renderAuth(last && last.userId
+      ? `Bitte erneut anmelden (${error ? Cloud.errorText(error) : 'keine gespeicherte Anmeldung gefunden'}).`
+      : undefined);
   }
 
   Cloud.client.auth.onAuthStateChange(event => {
     // Sitzung wurde ungültig (z. B. Passwort von einem Admin zurückgesetzt)
-    if (event === 'SIGNED_OUT' && account) endSession('Bitte melde dich erneut an.', isDirty());
+    if (event === 'SIGNED_OUT' && account) endSession('Die Anmeldung wurde vom Server beendet. Bitte erneut anmelden.', isDirty());
+    // Anmeldung wurde im Hintergrund erneuert: liegengebliebene Änderungen jetzt hochladen
+    if ((event === 'TOKEN_REFRESHED' || event === 'SIGNED_IN') && account && sync.status !== 'ok') scheduleSync(0);
   });
 }
 

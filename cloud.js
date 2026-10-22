@@ -8,9 +8,11 @@ const Cloud = (() => {
   // Fehlt die Bibliothek, war das Gerät beim allerersten Start offline
   const libLoaded = !!(window.supabase && window.supabase.createClient);
 
+  // Anmeldung bleibt auf dem Gerät gespeichert, bis man sich abmeldet
+  const AUTH_KEY = 'hotshot-auth';
   const client = configured && libLoaded
     ? window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, {
-      auth: { persistSession: true, autoRefreshToken: true, storageKey: 'hotshot-auth' },
+      auth: { persistSession: true, autoRefreshToken: true, storageKey: AUTH_KEY },
     })
     : null;
 
@@ -75,11 +77,26 @@ const Cloud = (() => {
     return data.session;
   }
 
+  // Wie getSession, aber mit Fehler und der Angabe, ob noch eine Anmeldung auf dem Gerät gespeichert ist.
+  // Supabase löscht sie nur, wenn sie wirklich ungültig ist – bei Netzproblemen bleibt sie erhalten.
+  async function getSessionInfo() {
+    let session = null;
+    let error = null;
+    try {
+      const res = await client.auth.getSession();
+      session = res.data.session;
+      error = res.error || null;
+    } catch (e) { error = e; }
+    let stored = false;
+    try { stored = !!localStorage.getItem(AUTH_KEY); } catch (e) { /* kein Speicher */ }
+    return { session, error, stored };
+  }
+
   async function getProfile(userId) {
     const { data, error } = await client.from('profiles').select('*').eq('id', userId).maybeSingle();
     if (error) throw error;
     return data;
   }
 
-  return { configured, libLoaded, client, normalizeUsername, usernameError, emailFor, errorText, signIn, signUp, signOut, getSession, getProfile };
+  return { configured, libLoaded, client, normalizeUsername, usernameError, emailFor, errorText, signIn, signUp, signOut, getSession, getSessionInfo, getProfile };
 })();
