@@ -1,7 +1,7 @@
 {
-  "name": "Schützen-App",
-  "short_name": "Schützen",
-  "description": "Schießergebnisse eintragen und die Entwicklung pro Disziplin auswerten.",
+  "name": "Hot Shot",
+  "short_name": "Hot Shot",
+  "description": "Schießergebnisse eintragen, auswerten und sicher in der Cloud speichern.",
   "lang": "de",
   "start_url": "./",
   "scope": "./",

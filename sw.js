@@ -1,17 +1,22 @@
 // Bei jeder Änderung an den App-Dateien die Version erhöhen,
 // damit das Handy die neue Version lädt.
-const CACHE = 'schuetzen-v20';
+const CACHE = 'hotshot-v1';
+
+const SUPABASE_LIB = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js';
 
 const FILES = [
   './',
   'index.html',
   'style.css',
+  'config.js',
+  'cloud.js',
   'app.js',
   'manifest.webmanifest',
   'icons/icon.svg',
   'icons/icon-192.png',
   'icons/icon-512.png',
   'icons/icon-maskable-512.png',
+  SUPABASE_LIB,
 ];
 
 self.addEventListener('install', e => {
@@ -26,9 +31,12 @@ self.addEventListener('activate', e => {
   );
 });
 
-// Erst Netzwerk (für Updates), bei Offline aus dem Cache
+// Erst Netzwerk (für Updates), bei Offline aus dem Cache.
+// Nur App-Dateien und die Supabase-Bibliothek – Anfragen an die Datenbank nie zwischenspeichern.
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
+  const url = new URL(e.request.url);
+  if (url.origin !== self.location.origin && e.request.url !== SUPABASE_LIB) return;
   e.respondWith(
     fetch(e.request)
       .then(res => {

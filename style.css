@@ -74,7 +74,105 @@ body {
   padding: calc(env(safe-area-inset-top) + 14px) 16px 10px;
 }
 
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .topbar h1 { margin: 0; font-size: 24px; font-weight: 700; }
+
+/* Speicherstatus oben rechts */
+.sync-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.sync-status[hidden] { display: none; }
+
+.sync-status::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+
+.sync-status[data-status="ok"]::before { background: var(--positive); }
+.sync-status[data-status="syncing"]::before { background: var(--accent); animation: pulse 1s ease-in-out infinite alternate; }
+.sync-status[data-status="error"], .sync-status[data-status="auth"] { color: var(--danger); border-color: var(--danger); }
+.sync-status[data-status="error"]::before, .sync-status[data-status="auth"]::before { background: var(--danger); }
+
+@keyframes pulse { from { opacity: 1; } to { opacity: .3; } }
+
+/* Abgemeldet: keine Navigation */
+body.logged-out .tabbar { display: none; }
+body.logged-out .topbar h1 { visibility: hidden; } /* Name steht schon groß im Anmeldebereich */
+body.logged-out main { padding-bottom: 32px; }
+body.logged-out #toast { bottom: 24px; }
+
+.auth { max-width: 420px; margin: 0 auto; }
+.auth-brand { text-align: center; margin: 12px 0 22px; }
+.auth-brand img { display: block; margin: 0 auto 10px; border-radius: 18px; }
+.auth-name { font-size: 28px; font-weight: 800; letter-spacing: -.01em; }
+.auth code { background: var(--surface-2); padding: 1px 5px; border-radius: 4px; }
+
+.segmented {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  margin-bottom: 16px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.segmented button {
+  flex: 1;
+  min-height: 40px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.segmented button.active { background: var(--accent); color: var(--accent-text); }
+
+.btn:disabled { opacity: .6; cursor: default; }
+a.btn { text-decoration: none; }
+
+/* Konto in den Optionen */
+.account-row { display: flex; align-items: center; gap: 12px; }
+.account-name { min-width: 0; }
+
+.avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--accent-text);
+  font-size: 19px;
+  font-weight: 700;
+}
 
 main {
   max-width: 640px;

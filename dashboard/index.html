@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Hot Shot Dashboard</title>
+  <link rel="icon" href="../icons/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="../style.css">
+  <link rel="stylesheet" href="dashboard.css">
+  <script>
+    // Gleiches Design wie in der App (Standard Dunkel)
+    let t = 'dark';
+    try { if (localStorage.getItem('schuetzen-theme') === 'light') t = 'light'; } catch (e) {}
+    document.documentElement.dataset.theme = t;
+  </script>
+</head>
+<body class="dash">
+  <header class="dash-top">
+    <a class="dash-brand" href="../" title="Zur App">
+      <img src="../icons/icon.svg" alt="" width="32" height="32">
+      <span><b>Hot Shot</b> <span id="club-name">Vereins-Dashboard</span></span>
+    </a>
+    <nav class="dash-nav" id="dash-nav" hidden aria-label="Bereiche">
+      <button type="button" data-view="ranking" class="active">Rangliste</button>
+      <button type="button" data-view="compare">Vergleich</button>
+      <button type="button" data-view="members">Mitglieder</button>
+      <button type="button" data-view="club">Verein</button>
+    </nav>
+    <div class="dash-user" id="dash-user"></div>
+  </header>
+
+  <main id="app" class="dash-main"></main>
+
+  <div id="toast" role="status" aria-live="polite"></div>
+
+  <script src="../config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+  <script src="../cloud.js"></script>
+  <script src="dashboard.js"></script>
+</body>
+</html>

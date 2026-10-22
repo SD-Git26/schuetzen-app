@@ -2,8 +2,14 @@
 
 // ---------- Daten ----------
 
-const STORAGE_KEY = 'schuetzen-app-v1';
+// Speicher der alten Version (ohne Konto); wird beim ersten Anmelden ins Konto übernommen
+const LEGACY_KEY = 'schuetzen-app-v1';
+// Jedes Konto hat auf dem Gerät eine eigene Kopie seiner Daten (für den Offline-Betrieb)
+const stateKey = userId => `hotshot-state-${userId}`;
+const dirtyKey = userId => `hotshot-dirty-${userId}`;
+const LAST_USER_KEY = 'hotshot-last-user';
 const TREND_WINDOW = 5;
+const TOMBSTONE_DAYS = 365;
 
 const DEFAULT_DISCIPLINES = [
   ['Pistole', false],
@@ -27,14 +33,18 @@ function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
 
-function newDiscipline(name, decimal) {
-  return { id: uid(), name, series: 3, shots: 10, decimal };
+function newDiscipline(name, decimal, id = uid()) {
+  return { id, name, series: 3, shots: 10, decimal, updatedAt: Date.now() };
 }
+
+// Feste IDs für die Standardwerte, damit zwei neue Geräte desselben Kontos nichts doppelt anlegen
+const slug = s => s.toLowerCase().replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/[^a-z0-9]+/g, '-');
 
 function defaultState() {
   return normalizeState({
     version: 1,
-    disciplines: DEFAULT_DISCIPLINES.map(([name, decimal]) => newDiscipline(name, decimal)),
+    disciplines: DEFAULT_DISCIPLINES.map(([name, decimal]) => ({ ...newDiscipline(name, decimal, 'std-' + slug(name)), updatedAt: 0 })),
+    competitionTypes: DEFAULT_COMPETITION_TYPES.map(name => ({ id: 'std-' + slug(name), name, updatedAt: 0 })),
     results: [],
   });
 }
@@ -53,9 +63,81 @@ function normalizeState(s) {
   if (!Array.isArray(s.competitionTypes)) {
     s.competitionTypes = DEFAULT_COMPETITION_TYPES.map(name => ({ id: uid(), name }));
   }
+  // Gelöschte IDs mit Zeitpunkt, damit das Löschen auch auf anderen Geräten ankommt
+  if (!s.deleted || typeof s.deleted !== 'object') s.deleted = {};
+  if (typeof s.settingsUpdatedAt !== 'number') s.settingsUpdatedAt = 0;
   // Ältere Einträge ohne Angabe gelten als Training
   s.results.forEach(r => { if (r.type !== 'competition') { r.type = 'training'; r.competition = null; } });
   return s;
+}
+
+// Zeitstempel für den Abgleich zwischen Geräten
+function touch(item) { item.updatedAt = Date.now(); return item; }
+function markDeleted(id) { state.deleted[id] = Date.now(); }
+
+// Führt zwei Stände zusammen (dieses Gerät + Cloud): pro Eintrag gewinnt die neuere Änderung,
+// Gelöschtes bleibt gelöscht, sofern es danach nicht noch einmal bearbeitet wurde.
+function mergeStates(a, b) {
+  a = normalizeState(a);
+  b = normalizeState(JSON.parse(JSON.stringify(b)));
+  const cutoff = Date.now() - TOMBSTONE_DAYS * 86400000;
+  const deleted = {};
+  for (const src of [a.deleted, b.deleted]) {
+    for (const [id, t] of Object.entries(src)) if (t > cutoff) deleted[id] = Math.max(t, deleted[id] || 0);
+  }
+  const stamp = x => x.updatedAt || x.createdAt || 0;
+  const mergeList = (la, lb) => {
+    const map = new Map();
+    for (const x of la) map.set(x.id, x);
+    for (const x of lb) { const cur = map.get(x.id); if (!cur || stamp(x) > stamp(cur)) map.set(x.id, x); }
+    return [...map.values()].filter(x => !(deleted[x.id] >= stamp(x)));
+  };
+  const newer = b.settingsUpdatedAt > a.settingsUpdatedAt ? b : a;
+  return normalizeState({
+    version: 1,
+    disciplines: mergeList(a.disciplines, b.disciplines),
+    competitionTypes: mergeList(a.competitionTypes, b.competitionTypes),
+    results: mergeList(a.results, b.results),
+    deleted,
+    defaultDisciplineId: newer.defaultDisciplineId,
+    settingsUpdatedAt: newer.settingsUpdatedAt,
+  });
+}
+
+// Übernimmt fremde Daten (alte Version auf dem Gerät) zusätzlich in den aktuellen Stand.
+// Gleichnamige Disziplinen und Wettkampfarten werden zusammengelegt statt doppelt angelegt.
+function importInto(target, incoming) {
+  incoming = normalizeState(incoming);
+  const byName = (list, name) => list.find(x => x.name.toLowerCase() === name.toLowerCase());
+  const discMap = {};
+  const compMap = {};
+  incoming.disciplines.forEach(d => {
+    const same = byName(target.disciplines, d.name);
+    if (same) discMap[d.id] = same.id;
+    else if (!target.disciplines.some(x => x.id === d.id)) target.disciplines.push(touch({ ...d }));
+  });
+  incoming.competitionTypes.forEach(c => {
+    const same = byName(target.competitionTypes, c.name);
+    if (same) compMap[c.id] = same.id;
+    else if (!target.competitionTypes.some(x => x.id === c.id)) target.competitionTypes.push(touch({ ...c }));
+  });
+  let added = 0;
+  incoming.results.forEach(r => {
+    if (target.results.some(x => x.id === r.id)) return;
+    const copy = touch(JSON.parse(JSON.stringify(r)));
+    copy.disciplineId = discMap[r.disciplineId] || r.disciplineId;
+    if (copy.competition && copy.competition.typeId) copy.competition.typeId = compMap[copy.competition.typeId] || copy.competition.typeId;
+    target.results.push(copy);
+    added++;
+  });
+  return added;
+}
+
+// JSON mit sortierten Schlüsseln – die Cloud-Datenbank ändert die Reihenfolge der Felder
+function canonical(v) {
+  if (Array.isArray(v)) return '[' + v.map(canonical).join(',') + ']';
+  if (v && typeof v === 'object') return '{' + Object.keys(v).sort().filter(k => v[k] !== undefined).map(k => JSON.stringify(k) + ':' + canonical(v[k])).join(',') + '}';
+  return JSON.stringify(v === undefined ? null : v);
 }
 
 function compTypeById(id) {
@@ -70,32 +152,177 @@ function competitionLabel(r) {
   return [t ? t.name : '', c.location].filter(Boolean).join(' · ');
 }
 
-function loadState() {
+function readJSON(key) {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const s = JSON.parse(raw);
-      if (isValidState(s)) {
-        const migrate = !Array.isArray(s.competitionTypes);
-        normalizeState(s);
-        // Ergänzte Felder gleich speichern, damit sie beim nächsten Start gleich bleiben
-        if (migrate) localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
-        return s;
-      }
-    }
-  } catch (e) { /* Speicher nicht verfügbar – mit Standardwerten starten */ }
-  return defaultState();
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) { return null; }
 }
 
-let state = loadState();
+function loadState(userId) {
+  const s = readJSON(stateKey(userId));
+  return isValidState(s) ? normalizeState(s) : defaultState();
+}
 
-function saveState() {
+// Angemeldetes Konto: { userId, username, displayName, isAdmin }
+let account = null;
+let state = defaultState();
+
+// Nur auf dem Gerät speichern (ohne Abgleich)
+function storeLocal() {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    localStorage.setItem(stateKey(account.userId), JSON.stringify(state));
+    return true;
   } catch (e) {
-    toast('Speichern fehlgeschlagen – bitte Backup exportieren!');
+    return false;
   }
 }
+
+// Speichern nach jeder Änderung: sofort auf dem Gerät, kurz danach in der Cloud
+function saveState() {
+  if (!storeLocal()) toast('Speichern auf dem Gerät fehlgeschlagen');
+  setDirty(true);
+  sync.localVersion++;
+  scheduleSync();
+}
+
+// ---------- Cloud-Abgleich ----------
+
+const sync = {
+  status: 'idle',   // idle | syncing | ok | offline | error | auth
+  lastSync: null,   // Zeitpunkt des letzten erfolgreichen Abgleichs
+  running: false,
+  again: false,
+  timer: null,
+  localVersion: 0,  // zählt lokale Änderungen, um Änderungen während des Abgleichs zu erkennen
+};
+
+function isDirty() {
+  try { return !!account && localStorage.getItem(dirtyKey(account.userId)) === '1'; } catch (e) { return true; }
+}
+
+function setDirty(on) {
+  try {
+    if (on) localStorage.setItem(dirtyKey(account.userId), '1');
+    else localStorage.removeItem(dirtyKey(account.userId));
+  } catch (e) { /* ohne Speicher kein Merker */ }
+}
+
+function scheduleSync(delay = 800) {
+  clearTimeout(sync.timer);
+  sync.timer = setTimeout(syncNow, delay);
+}
+
+const SYNC_LABELS = {
+  syncing: 'Speichert …',
+  ok: 'In der Cloud',
+  offline: 'Offline',
+  error: 'Nicht hochgeladen',
+  auth: 'Neu anmelden',
+};
+
+function setSyncStatus(status) {
+  sync.status = status;
+  const el = document.getElementById('sync-status');
+  el.hidden = !account || status === 'idle';
+  el.dataset.status = status;
+  el.textContent = SYNC_LABELS[status] || '';
+  el.title = status === 'ok' && sync.lastSync
+    ? `Zuletzt abgeglichen ${sync.lastSync.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}`
+    : status === 'offline' ? 'Änderungen werden hochgeladen, sobald wieder Internet da ist'
+      : status === 'error' ? 'Tippen zum erneuten Versuch' : '';
+  const box = document.getElementById('sync-detail');
+  if (box) box.innerHTML = syncDetailText();
+  if (status === 'auth' && ui.tab === 'options') refreshAfterSync(); // Knopf „Neu anmelden“ zeigen
+}
+
+function syncDetailText() {
+  if (!Cloud.client) return 'Keine Verbindung zur Cloud – die Daten werden vorerst nur auf diesem Gerät gespeichert.';
+  const when = sync.lastSync ? sync.lastSync.toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' }) : null;
+  switch (sync.status) {
+    case 'syncing': return 'Wird gerade mit der Cloud abgeglichen …';
+    case 'ok': return `Alle Daten sind in der Cloud gesichert${when ? ` (zuletzt ${when})` : ''}.`;
+    case 'offline': return 'Offline – Änderungen werden hochgeladen, sobald wieder Internet da ist.';
+    case 'auth': return 'Die Anmeldung ist abgelaufen. Bitte ab- und wieder anmelden; deine Daten auf diesem Gerät bleiben erhalten.';
+    case 'error': return 'Hochladen fehlgeschlagen – wird automatisch erneut versucht.';
+    default: return isDirty() ? 'Noch nicht hochgeladene Änderungen vorhanden.' : '';
+  }
+}
+
+function isAuthError(e) {
+  const m = String((e && e.message) || '');
+  return (e && (e.status === 401 || e.code === 'PGRST301' || e.code === 'PGRST303')) || /jwt|not authenticated/i.test(m);
+}
+
+// Holt den Stand aus der Cloud, führt ihn mit diesem Gerät zusammen und lädt das Ergebnis hoch.
+// Hat ein anderes Gerät zwischendurch gespeichert, wird es erneut versucht.
+async function syncNow() {
+  clearTimeout(sync.timer);
+  if (!account || !Cloud.client) return;
+  if (sync.running) { sync.again = true; return; }
+  if (!navigator.onLine) { setSyncStatus('offline'); return; }
+  const userId = account.userId;
+  sync.running = true;
+  setSyncStatus('syncing');
+  try {
+    const db = Cloud.client.from('user_state');
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const versionBefore = sync.localVersion;
+      const { data: row, error } = await db.select('state, updated_at').eq('user_id', userId).maybeSingle();
+      if (error) throw error;
+      if (!account || account.userId !== userId) return;
+
+      const remote = row && isValidState(row.state) ? row.state : null;
+      const remoteCanon = remote ? canonical(remote) : null;
+      // Ohne eigene Änderungen gilt der Stand aus der Cloud, sonst wird zusammengeführt
+      const next = !remote ? state : isDirty() ? mergeStates(state, remote) : normalizeState(remote);
+      if (canonical(next) !== canonical(state)) {
+        state = next;
+        storeLocal();
+        refreshAfterSync();
+      }
+      if (remote && canonical(state) === remoteCanon) {
+        if (sync.localVersion === versionBefore) setDirty(false);
+        break;
+      }
+
+      const res = row
+        ? await db.update({ state }).eq('user_id', userId).eq('updated_at', row.updated_at).select('updated_at')
+        : await db.insert({ user_id: userId, state }).select('updated_at');
+      if (res.error && res.error.code === '23505') continue;  // Zeile wurde gerade von einem anderen Gerät angelegt
+      if (res.error) throw res.error;
+      if (!res.data || res.data.length === 0) continue;      // anderes Gerät war schneller
+      if (sync.localVersion === versionBefore) setDirty(false);
+      break;
+    }
+    sync.lastSync = new Date();
+    setSyncStatus(isDirty() && !sync.again ? 'error' : 'ok');
+  } catch (e) {
+    setSyncStatus(isAuthError(e) ? 'auth' : navigator.onLine ? 'error' : 'offline');
+    if (sync.status === 'error') scheduleSync(30000);
+  } finally {
+    sync.running = false;
+    if (sync.again) { sync.again = false; scheduleSync(0); }
+  }
+}
+
+// Nach einem Abgleich neu zeichnen – aber nicht, während jemand gerade tippt
+function refreshAfterSync() {
+  const a = document.activeElement;
+  if (a && view.contains(a) && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) return;
+  if (!document.body.classList.contains('logged-out')) render();
+}
+
+window.addEventListener('online', () => scheduleSync(0));
+window.addEventListener('offline', () => { if (account) setSyncStatus('offline'); });
+document.addEventListener('visibilitychange', () => {
+  // Beim Zurückkehren in die App Änderungen von anderen Geräten holen
+  if (document.visibilityState === 'visible' && account) scheduleSync(0);
+});
+document.getElementById('sync-status').addEventListener('click', () => {
+  if (sync.status === 'auth') { setTab('options'); return; }
+  syncNow();
+});
 
 // ---------- Design (hell/dunkel) ----------
 
@@ -511,10 +738,10 @@ function renderEntry() {
     };
     if (ui.editId) {
       const r = state.results.find(x => x.id === ui.editId);
-      if (r) Object.assign(r, fields);
+      if (r) touch(Object.assign(r, fields));
       toast('Änderungen gespeichert');
     } else {
-      state.results.push({ id: uid(), ...fields, createdAt: Date.now() });
+      state.results.push({ id: uid(), ...fields, createdAt: Date.now(), updatedAt: Date.now() });
       toast(`${fmtScore(total, d)} Ringe gespeichert${dr.isComp ? ' (Wettkampf)' : ''}`);
     }
     saveState();
@@ -590,6 +817,7 @@ function renderHistory() {
     if (!r) return;
     if (!(await askConfirm(`Ergebnis vom ${fmtDate(r.date)} (${fmtScore(r.total, discById(r.disciplineId))}) wirklich löschen?`))) return;
     state.results = state.results.filter(x => x.id !== r.id);
+    markDeleted(r.id);
     saveState();
     render();
     toast('Ergebnis gelöscht');
@@ -955,6 +1183,23 @@ function renderOptions() {
 
   view.innerHTML = `
     <div class="card">
+      <h2>Konto</h2>
+      <div class="account-row">
+        <div class="avatar" aria-hidden="true">${esc((account.displayName || account.username).slice(0, 1).toUpperCase())}</div>
+        <div class="account-name">
+          <div class="disc-name">${esc(account.displayName || account.username)}${account.isAdmin ? ' <span class="badge">Admin</span>' : ''}</div>
+          <div class="disc-meta">@${esc(account.username)}</div>
+        </div>
+      </div>
+      <p class="hint" id="sync-detail">${syncDetailText()}</p>
+      <div class="actions">
+        <button class="btn" id="sync-now">Abgleichen</button>
+        <button class="btn ${sync.status === 'auth' ? 'primary' : ''}" id="logout">${sync.status === 'auth' ? 'Neu anmelden' : 'Abmelden'}</button>
+      </div>
+      ${account.isAdmin ? `<div class="actions" style="margin-top:10px"><a class="btn primary" href="dashboard/" target="_blank" rel="noopener">Vereins-Dashboard öffnen</a></div>` : ''}
+    </div>
+
+    <div class="card">
       <h2>Allgemein</h2>
       <div class="option-row">
         <span class="label" style="margin:0">Design</span>
@@ -981,7 +1226,7 @@ function renderOptions() {
       ${ui.editCompId ? '' : '<div class="actions"><button class="btn primary" id="ct-add">+ Wettkampfart hinzufügen</button></div>'}`)}
 
     ${collapsible('backup', 'Datensicherung', '', `
-      <p class="hint" style="margin:0 0 12px">Deine Daten sind nur auf diesem Gerät gespeichert. Exportiere regelmäßig ein Backup, z. B. bevor du das Handy wechselst.</p>
+      <p class="hint" style="margin:0 0 12px">Deine Daten werden automatisch in der Cloud gesichert und sind auf jedem Gerät verfügbar, auf dem du dich anmeldest. Zusätzlich kannst du hier eine Kopie als Datei speichern.</p>
       <div class="actions" style="margin-top:0">
         <button class="btn" id="export-json">Backup exportieren</button>
         <button class="btn" id="import-json">Backup importieren</button>
@@ -1012,6 +1257,16 @@ function renderOptions() {
 
   bindCompTypes();
 
+  document.getElementById('sync-now').onclick = () => {
+    if (!navigator.onLine) { toast('Kein Internet – später erneut versuchen'); return; }
+    syncNow();
+  };
+  document.getElementById('logout').onclick = () => {
+    // Abgelaufene Anmeldung: neu anmelden, ohne die Daten auf dem Gerät zu verlieren
+    if (sync.status === 'auth') endSession('Bitte melde dich erneut an.', true);
+    else logout();
+  };
+
   const addBtn = document.getElementById('add-disc');
   if (addBtn) addBtn.onclick = () => { ui.editDiscId = 'new'; render(); document.getElementById('de-name').focus(); };
 
@@ -1025,7 +1280,10 @@ function renderOptions() {
       : `„${d.name}“ löschen?`;
     if (!(await askConfirm(msg))) return;
     state.disciplines = state.disciplines.filter(x => x.id !== d.id);
+    markDeleted(d.id);
+    state.results.filter(r => r.disciplineId === d.id).forEach(r => markDeleted(r.id));
     state.results = state.results.filter(r => r.disciplineId !== d.id);
+    if (state.defaultDisciplineId === d.id) state.settingsUpdatedAt = Date.now();
     normalizeState(state);
     ui.draft = null;
     saveState();
@@ -1057,11 +1315,11 @@ function renderOptions() {
         if (makeDefault) state.defaultDisciplineId = d.id;
         toast('Disziplin hinzugefügt');
       } else {
-        Object.assign(discById(ui.editDiscId), { name, series, shots, decimal });
+        touch(Object.assign(discById(ui.editDiscId), { name, series, shots, decimal }));
         if (makeDefault) state.defaultDisciplineId = ui.editDiscId;
         toast('Disziplin gespeichert');
       }
-      if (makeDefault) ui.analysisDiscId = null;
+      if (makeDefault) { ui.analysisDiscId = null; state.settingsUpdatedAt = Date.now(); }
       ui.editDiscId = null;
       ui.draft = null;
       normalizeState(state);
@@ -1071,7 +1329,7 @@ function renderOptions() {
   }
 
   document.getElementById('export-json').onclick = () => {
-    download(`schuetzen-backup-${todayISO()}.json`, JSON.stringify(state, null, 2), 'application/json');
+    download(`hotshot-backup-${todayISO()}.json`, JSON.stringify(state, null, 2), 'application/json');
   };
 
   document.getElementById('export-csv').onclick = () => {
@@ -1098,7 +1356,7 @@ function renderOptions() {
       row.push(r.note || '');
       lines.push(row.map(csvCell).join(';'));
     }
-    download(`schuetzen-ergebnisse-${todayISO()}.csv`, '﻿' + lines.join('\r\n'), 'text/csv');
+    download(`hotshot-ergebnisse-${todayISO()}.csv`, '﻿' + lines.join('\r\n'), 'text/csv');
   };
 
   const fileInput = document.getElementById('import-file');
@@ -1109,9 +1367,18 @@ function renderOptions() {
     try {
       const data = JSON.parse(await file.text());
       if (!isValidState(data)) throw new Error('format');
-      const msg = `Backup mit ${data.results.length} Ergebnissen und ${data.disciplines.length} Disziplinen laden?\n\nDie aktuellen Daten auf diesem Gerät werden dabei ersetzt.`;
+      const msg = `Backup mit ${data.results.length} Ergebnissen und ${data.disciplines.length} Disziplinen laden?\n\nDie aktuellen Daten in deinem Konto werden dabei ersetzt – auch in der Cloud und auf deinen anderen Geräten.`;
       if (!(await askConfirm(msg, 'Backup laden'))) return;
-      state = normalizeState(data);
+      const loaded = normalizeState(data);
+      // Alles Bisherige, was im Backup fehlt, als gelöscht vermerken; alles aus dem Backup gilt als neuester Stand
+      const keep = new Set([...loaded.disciplines, ...loaded.competitionTypes, ...loaded.results].map(x => x.id));
+      const deleted = { ...state.deleted };
+      [...state.disciplines, ...state.competitionTypes, ...state.results].forEach(x => { if (!keep.has(x.id)) deleted[x.id] = Date.now(); });
+      keep.forEach(id => delete deleted[id]);
+      [...loaded.disciplines, ...loaded.competitionTypes, ...loaded.results].forEach(touch);
+      loaded.deleted = deleted;
+      loaded.settingsUpdatedAt = Date.now();
+      state = loaded;
       ui.draft = null;
       ui.analysisDiscId = null;
       saveState();
@@ -1192,8 +1459,8 @@ function bindCompTypes() {
       const isNew = ui.editCompId === 'new';
       if (!name) return toast('Bitte einen Namen eingeben');
       if (nameTaken(name, isNew ? null : ui.editCompId)) return toast('Diese Wettkampfart gibt es schon');
-      if (isNew) state.competitionTypes.push({ id: uid(), name });
-      else compTypeById(ui.editCompId).name = name;
+      if (isNew) state.competitionTypes.push({ id: uid(), name, updatedAt: Date.now() });
+      else touch(compTypeById(ui.editCompId)).name = name;
       ui.editCompId = null;
       ui.draft = null;
       saveState();
@@ -1212,8 +1479,9 @@ function bindCompTypes() {
       ? `„${c.name}“ löschen?\n\n${used.length} ${used.length === 1 ? 'Eintrag bleibt' : 'Einträge bleiben'} als Wettkampf erhalten, aber ohne Angabe der Art.`
       : `„${c.name}“ löschen?`;
     if (!(await askConfirm(msg))) return;
-    used.forEach(r => { r.competition.typeId = null; });
+    used.forEach(r => { r.competition.typeId = null; touch(r); });
     state.competitionTypes = state.competitionTypes.filter(x => x.id !== c.id);
+    markDeleted(c.id);
     ui.draft = null;
     saveState();
     render();
@@ -1233,9 +1501,256 @@ function download(filename, content, type) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+// ---------- Anmeldung ----------
+
+const authUi = {
+  mode: 'login', // login | register
+  fields: { username: '', displayName: '', clubCode: '', password: '', password2: '' },
+  busy: false,
+};
+
+function showLoggedOut(html) {
+  document.body.classList.add('logged-out');
+  document.getElementById('title').textContent = 'Hot Shot';
+  document.getElementById('sync-status').hidden = true;
+  view.innerHTML = html;
+}
+
+function renderAuth(message) {
+  if (!Cloud.configured) {
+    showLoggedOut(`
+      <div class="auth">
+        ${authBrand()}
+        <div class="card">
+          <h2>Cloud noch nicht eingerichtet</h2>
+          <p class="hint">In <code>config.js</code> fehlen die Zugangsdaten zum Supabase-Projekt.
+            Die Schritte stehen in der README im Abschnitt „Cloud einrichten“.</p>
+        </div>
+      </div>`);
+    return;
+  }
+  if (!Cloud.libLoaded) {
+    showLoggedOut(`
+      <div class="auth">
+        ${authBrand()}
+        <div class="card empty">Keine Internetverbindung.<br>Für die erste Anmeldung wird Internet benötigt.<br><br>
+          <button class="btn primary" id="retry">Erneut versuchen</button></div>
+      </div>`);
+    document.getElementById('retry').onclick = () => location.reload();
+    return;
+  }
+
+  const f = authUi.fields;
+  const reg = authUi.mode === 'register';
+  showLoggedOut(`
+    <div class="auth">
+      ${authBrand()}
+      <div class="card">
+        <div class="segmented" role="tablist">
+          <button type="button" role="tab" data-mode="login" aria-selected="${!reg}" class="${!reg ? 'active' : ''}">Anmelden</button>
+          <button type="button" role="tab" data-mode="register" aria-selected="${reg}" class="${reg ? 'active' : ''}">Registrieren</button>
+        </div>
+        <form id="auth-form" novalidate>
+          <div class="field">
+            <label for="a-username">Benutzername</label>
+            <input id="a-username" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" value="${esc(f.username)}" placeholder="z. B. max.muster" maxlength="30">
+          </div>
+          ${reg ? `
+          <div class="field">
+            <label for="a-display">Vor- und Nachname</label>
+            <input id="a-display" name="displayName" autocomplete="name" value="${esc(f.displayName)}" placeholder="So erscheinst du in der Vereinsauswertung" maxlength="60">
+          </div>` : ''}
+          <div class="field">
+            <label for="a-password">Passwort</label>
+            <input id="a-password" name="password" type="password" autocomplete="${reg ? 'new-password' : 'current-password'}" value="${esc(f.password)}">
+          </div>
+          ${reg ? `
+          <div class="field">
+            <label for="a-password2">Passwort wiederholen</label>
+            <input id="a-password2" name="password2" type="password" autocomplete="new-password" value="${esc(f.password2)}">
+          </div>
+          <div class="field">
+            <label for="a-club">Vereinscode</label>
+            <input id="a-club" name="clubCode" autocomplete="off" autocapitalize="characters" spellcheck="false" value="${esc(f.clubCode)}" placeholder="bekommst du vom Verein">
+          </div>` : ''}
+          <div id="auth-error" class="error" ${message ? '' : 'hidden'}>${esc(message || '')}</div>
+          <div class="actions">
+            <button type="submit" class="btn primary" id="auth-submit" ${authUi.busy ? 'disabled' : ''}>${reg ? 'Konto anlegen' : 'Anmelden'}</button>
+          </div>
+        </form>
+        ${!reg ? '<p class="hint" style="margin-top:14px">Passwort vergessen? Ein Admin deines Vereins kann es im Dashboard zurücksetzen.</p>' : ''}
+      </div>
+    </div>`);
+
+  view.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => {
+    authUi.mode = b.dataset.mode;
+    renderAuth();
+  });
+  view.querySelectorAll('#auth-form input').forEach(el => el.oninput = () => { f[el.name] = el.value; });
+
+  const form = document.getElementById('auth-form');
+  const errEl = document.getElementById('auth-error');
+  const fail = m => { errEl.hidden = false; errEl.textContent = m; };
+
+  form.onsubmit = async e => {
+    e.preventDefault();
+    if (authUi.busy) return;
+    const uErr = Cloud.usernameError(f.username);
+    if (uErr) return fail(uErr);
+    if (!f.password) return fail('Bitte ein Passwort eingeben');
+    if (reg) {
+      if (!f.displayName.trim()) return fail('Bitte Vor- und Nachnamen eingeben');
+      if (f.password.length < 6) return fail('Das Passwort muss mindestens 6 Zeichen haben');
+      if (f.password !== f.password2) return fail('Die Passwörter stimmen nicht überein');
+      if (!f.clubCode.trim()) return fail('Bitte den Vereinscode eingeben');
+    }
+    if (!navigator.onLine) return fail('Keine Internetverbindung');
+
+    authUi.busy = true;
+    const btn = document.getElementById('auth-submit');
+    btn.disabled = true;
+    btn.textContent = 'Bitte warten …';
+    try {
+      const session = reg
+        ? await Cloud.signUp({ username: f.username, password: f.password, displayName: f.displayName.trim(), clubCode: f.clubCode.trim() })
+        : await Cloud.signIn(f.username, f.password);
+      authUi.busy = false;
+      authUi.fields = { username: '', displayName: '', clubCode: '', password: '', password2: '' };
+      await startSession(session.user);
+      if (reg) toast('Willkommen bei Hot Shot!');
+    } catch (err) {
+      authUi.busy = false;
+      btn.disabled = false;
+      btn.textContent = reg ? 'Konto anlegen' : 'Anmelden';
+      fail(Cloud.errorText(err));
+    }
+  };
+}
+
+function authBrand() {
+  return `
+    <div class="auth-brand">
+      <img src="icons/icon.svg" alt="" width="72" height="72">
+      <div class="auth-name">Hot Shot</div>
+      <p class="hint">Deine Schießergebnisse – sicher in der Cloud.</p>
+    </div>`;
+}
+
+function accountFromUser(user) {
+  const meta = user.user_metadata || {};
+  return {
+    userId: user.id,
+    username: meta.username || String(user.email || '').split('@')[0],
+    displayName: meta.display_name || meta.username || '',
+    isAdmin: false,
+  };
+}
+
+function rememberAccount() {
+  try { localStorage.setItem(LAST_USER_KEY, JSON.stringify(account)); } catch (e) { /* egal */ }
+}
+
+async function startSession(user, cached) {
+  account = cached || accountFromUser(user);
+  rememberAccount();
+  state = loadState(account.userId);
+  sync.lastSync = null;
+  Object.assign(ui, { tab: 'entry', draft: null, editId: null, historyFilter: 'all', analysisDiscId: null, selectedPoint: null, editDiscId: null, editCompId: null });
+  document.body.classList.remove('logged-out');
+  setTab('entry');
+  setSyncStatus(navigator.onLine ? 'idle' : 'offline');
+  await offerLegacyImport();
+  syncNow();
+  refreshProfile();
+}
+
+// Anzeigename und Admin-Recht aus der Cloud holen
+async function refreshProfile() {
+  if (!Cloud.client || !navigator.onLine) return;
+  try {
+    const p = await Cloud.getProfile(account.userId);
+    if (!p || !account || account.userId !== p.id) return;
+    const changed = account.isAdmin !== p.is_admin || account.displayName !== p.display_name;
+    Object.assign(account, { username: p.username, displayName: p.display_name, isAdmin: p.is_admin });
+    rememberAccount();
+    if (changed && ui.tab === 'options') refreshAfterSync();
+  } catch (e) { /* beim nächsten Start erneut */ }
+}
+
+// Daten aus der Version ohne Konto einmalig ins Konto übernehmen
+async function offerLegacyImport() {
+  const legacy = readJSON(LEGACY_KEY);
+  if (!isValidState(legacy) || legacy.results.length === 0) return;
+  const n = legacy.results.length;
+  const ok = await askConfirm(
+    `${n} ${n === 1 ? 'Ergebnis' : 'Ergebnisse'} aus der alten Schützen-App gefunden\n\nSollen sie in dein Konto „${account.username}“ übernommen und damit in der Cloud gesichert werden?`,
+    'Übernehmen');
+  if (!ok) return;
+  const added = importInto(state, legacy);
+  saveState();
+  try {
+    // Nicht löschen, nur umbenennen – so bleibt im Notfall eine Kopie auf dem Gerät
+    localStorage.setItem(LEGACY_KEY + '-uebernommen', localStorage.getItem(LEGACY_KEY));
+    localStorage.removeItem(LEGACY_KEY);
+  } catch (e) { /* dann wird beim nächsten Start erneut gefragt */ }
+  render();
+  toast(`${added} ${added === 1 ? 'Ergebnis' : 'Ergebnisse'} übernommen`);
+}
+
+async function logout() {
+  if (isDirty()) {
+    const ok = await askConfirm('Wirklich abmelden?\n\nEinige Änderungen sind noch nicht in der Cloud gespeichert und gehen beim Abmelden verloren. Verbinde dich besser erst mit dem Internet.', 'Trotzdem abmelden');
+    if (!ok) return;
+  }
+  endSession();
+  await Cloud.signOut();
+}
+
+// Gerätekopie entfernen, damit auf geteilten Handys keine fremden Daten liegen bleiben.
+// Mit keepData bleiben die Daten erhalten (abgelaufene Anmeldung mit noch nicht hochgeladenen Änderungen).
+function endSession(message, keepData) {
+  if (!account) return;
+  if (!keepData) {
+    try {
+      localStorage.removeItem(stateKey(account.userId));
+      localStorage.removeItem(dirtyKey(account.userId));
+      localStorage.removeItem(LAST_USER_KEY);
+    } catch (e) { /* egal */ }
+  }
+  account = null;
+  state = defaultState();
+  clearTimeout(sync.timer);
+  renderAuth(message);
+}
+
 // ---------- Start ----------
 
-render();
+async function boot() {
+  if (!Cloud.client) {
+    // Offline beim Start ohne geladene Bibliothek: mit dem zuletzt angemeldeten Konto weiterarbeiten
+    const last = readJSON(LAST_USER_KEY);
+    if (Cloud.configured && last && last.userId) return startSession(null, last);
+    return renderAuth();
+  }
+  let session = null;
+  try { session = await Cloud.getSession(); } catch (e) { /* offline */ }
+  const last = readJSON(LAST_USER_KEY);
+  if (session) {
+    const cached = last && last.userId === session.user.id ? last : null;
+    await startSession(session.user, cached);
+  } else if (last && last.userId && !navigator.onLine) {
+    await startSession(null, last);
+  } else {
+    renderAuth();
+  }
+
+  Cloud.client.auth.onAuthStateChange(event => {
+    // Sitzung wurde ungültig (z. B. Passwort von einem Admin zurückgesetzt)
+    if (event === 'SIGNED_OUT' && account) endSession('Bitte melde dich erneut an.', isDirty());
+  });
+}
+
+boot();
 
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   navigator.serviceWorker.register('sw.js').catch(() => {});
