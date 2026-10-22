@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#12161c">
+  <meta name="description" content="Schießergebnisse eintragen und die eigene Entwicklung pro Disziplin auswerten.">
+  <title>Schützen-App</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="style.css">
+  <script>
+    // Gewähltes Design sofort setzen, damit die Seite nicht kurz in der falschen Farbe aufblitzt.
+    // Standard ist Dunkel.
+    let t = 'dark';
+    try { if (localStorage.getItem('schuetzen-theme') === 'light') t = 'light'; } catch (e) {}
+    document.documentElement.dataset.theme = t;
+  </script>
+</head>
+<body>
+  <header class="topbar">
+    <h1 id="title">Eintrag</h1>
+  </header>
+
+  <main id="view"></main>
+
+  <nav class="tabbar" aria-label="Hauptnavigation">
+    <button type="button" data-tab="entry" class="active">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+      <span>Eintrag</span>
+    </button>
+    <button type="button" data-tab="history">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+      <span>Verlauf</span>
+    </button>
+    <button type="button" data-tab="analysis">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V5M4 19h16M7 15l4-4 3 3 5-6"/></svg>
+      <span>Analyse</span>
+    </button>
+    <button type="button" data-tab="options">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></svg>
+      <span>Optionen</span>
+    </button>
+  </nav>
+
+  <div id="toast" role="status" aria-live="polite"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
