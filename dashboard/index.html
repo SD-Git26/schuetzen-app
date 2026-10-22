@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="de">
 <head>
   <meta charset="utf-8">
@@ -6,8 +6,9 @@
   <meta name="robots" content="noindex">
   <title>Hot Shot Dashboard</title>
   <link rel="icon" href="../icons/icon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="../style.css">
-  <link rel="stylesheet" href="dashboard.css">
+  <!-- ?v=… bei jeder Änderung erhöhen (gleiche Zahl wie in sw.js), damit Browser keine alte Datei aus dem Zwischenspeicher nehmen -->
+  <link rel="stylesheet" href="../style.css?v=5">
+  <link rel="stylesheet" href="dashboard.css?v=5">
   <script>
     // Gleiches Design wie in der App (Standard Dunkel)
     let t = 'dark';
@@ -50,9 +51,9 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="../config.js"></script>
+  <script src="../config.js?v=5"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-  <script src="../cloud.js"></script>
-  <script src="dashboard.js"></script>
+  <script src="../cloud.js?v=5"></script>
+  <script src="dashboard.js?v=5"></script>
 </body>
 </html>

@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="de">
 <head>
   <meta charset="utf-8">
@@ -9,7 +9,8 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <link rel="stylesheet" href="style.css">
+  <!-- ?v=… bei jeder Änderung erhöhen (gleiche Zahl wie in sw.js), damit Browser keine alte Datei aus dem Zwischenspeicher nehmen -->
+  <link rel="stylesheet" href="style.css?v=5">
   <script>
     // Gewähltes Design sofort setzen, damit die Seite nicht kurz in der falschen Farbe aufblitzt.
     // Standard ist Dunkel.
@@ -47,9 +48,10 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="config.js"></script>
+  <script src="config.js?v=5"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-  <script src="cloud.js"></script>
-  <script src="app.js"></script>
+  <script src="disziplinen.js?v=5"></script>
+  <script src="cloud.js?v=5"></script>
+  <script src="app.js?v=5"></script>
 </body>
 </html>

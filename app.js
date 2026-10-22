@@ -11,13 +11,8 @@ const LAST_USER_KEY = 'hotshot-last-user';
 const TREND_WINDOW = 5;
 const TOMBSTONE_DAYS = 365;
 
-const DEFAULT_DISCIPLINES = [
-  ['Pistole', false],
-  ['Luftgewehr', true],
-  ['Luftpistole', true],
-  ['KK-Gewehr', true],
-  ['Sportpistole', false],
-];
+// Vorauswahl beim Eintrag, solange kein Standard festgelegt ist: 2.10 Luftpistole
+const DEFAULT_DISC_ID = 'dsb-2.10';
 
 const DEFAULT_COMPETITION_TYPES = [
   'Vereinsmeisterschaft',
@@ -43,7 +38,7 @@ const slug = s => s.toLowerCase().replace(/ä/g, 'ae').replace(/ö/g, 'oe').repl
 function defaultState() {
   return normalizeState({
     version: 1,
-    disciplines: DEFAULT_DISCIPLINES.map(([name, decimal]) => ({ ...newDiscipline(name, decimal, 'std-' + slug(name)), updatedAt: 0 })),
+    disciplines: [], // Disziplinen der DSB/RSB-Liste kommen beim ersten Ergebnis dazu
     competitionTypes: DEFAULT_COMPETITION_TYPES.map(name => ({ id: 'std-' + slug(name), name, updatedAt: 0 })),
     results: [],
   });
@@ -55,9 +50,8 @@ function isValidState(s) {
 
 // Ergänzt fehlende Felder (z. B. aus älteren Backups)
 function normalizeState(s) {
-  if (!s.disciplines.some(d => d.id === s.defaultDisciplineId)) {
-    const lp = s.disciplines.find(d => d.name === 'Luftpistole');
-    s.defaultDisciplineId = lp ? lp.id : (s.disciplines[0] ? s.disciplines[0].id : null);
+  if (!s.disciplines.some(d => d.id === s.defaultDisciplineId) && !isCatalogId(s.defaultDisciplineId)) {
+    s.defaultDisciplineId = DEFAULT_DISC_ID;
   }
   delete s.lastDisciplineId;
   if (!Array.isArray(s.competitionTypes)) {
@@ -351,7 +345,31 @@ if (navigator.storage && navigator.storage.persist) {
 }
 
 function discById(id) {
-  return state.disciplines.find(d => d.id === id) || null;
+  return state.disciplines.find(d => d.id === id) || catalogDisc(id);
+}
+
+function isCatalogId(id) {
+  return DISCIPLINE_CATALOG.some(c => c.id === id);
+}
+
+// Disziplin aus der DSB/RSB-Liste mit Voreinstellungen. In die eigenen Daten (state.disciplines)
+// kommt sie erst beim ersten Ergebnis oder wenn Serien/Wertung angepasst werden.
+function catalogDisc(id) {
+  const c = DISCIPLINE_CATALOG.find(x => x.id === id);
+  return c ? { id: c.id, name: c.name, series: 3, shots: 10, decimal: c.decimal, updatedAt: 0 } : null;
+}
+
+// Fügt eine Disziplin aus der Liste den eigenen Daten hinzu (falls noch nicht geschehen)
+function adoptDisc(d) {
+  const own = state.disciplines.find(x => x.id === d.id);
+  if (own) return own;
+  state.disciplines.push(touch(d));
+  return d;
+}
+
+// Für Auswahllisten in Verlauf und Analyse: nur Disziplinen, die man schon benutzt hat
+function sortedDisciplines() {
+  return state.disciplines.slice().sort((a, b) => a.name.localeCompare(b.name, 'de', { numeric: true }));
 }
 
 function shotMax(d) { return d.decimal ? 10.9 : 10; }
@@ -472,6 +490,7 @@ const ui = {
   selectedPoint: null,
   lines: { data: true, trend: true }, // sichtbare Linien im Ergebnisverlauf
   editDiscId: null,     // Disziplin, die gerade bearbeitet wird ('new' = neue)
+  adjustDisc: false,    // Eintrag: Serien/Wertung der gewählten Disziplin anpassen
   editCompId: null,     // Wettkampfart, die gerade umbenannt wird
   openSections: new Set(), // aufgeklappte Bereiche in den Optionen
 };
@@ -508,7 +527,7 @@ function knownLocations() {
 }
 
 function freshDraft() {
-  const d = discById(state.defaultDisciplineId) || state.disciplines[0];
+  const d = discById(state.defaultDisciplineId) || discById(DEFAULT_DISC_ID);
   return {
     disciplineId: d ? d.id : null,
     date: todayISO(),
@@ -539,13 +558,6 @@ function draftFromResult(r) {
 }
 
 function renderEntry() {
-  if (state.disciplines.length === 0) {
-    view.innerHTML = `<div class="card empty">Noch keine Disziplin angelegt.<br><br>
-      <button class="btn primary" id="go-options">Zu den Optionen</button></div>`;
-    document.getElementById('go-options').onclick = () => setTab('options');
-    return;
-  }
-
   if (!ui.draft || !discById(ui.draft.disciplineId)) ui.draft = freshDraft();
   const dr = ui.draft;
   const d = discById(dr.disciplineId);
@@ -555,9 +567,6 @@ function renderEntry() {
     dr.series = Array.from({ length: d.series }, (_, i) => dr.series[i] || '');
   }
 
-  const options = state.disciplines.map(x =>
-    `<option value="${x.id}" ${x.id === d.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('');
-
   const seriesInputs = dr.series.map((v, i) => `
     <div>
       <label for="s${i}">Serie ${i + 1}</label>
@@ -566,17 +575,24 @@ function renderEntry() {
 
   view.innerHTML = `
     <div class="card">
-      <div class="row">
-        <div class="field">
-          <label for="disc">Disziplin</label>
-          <select id="disc">${options}</select>
-        </div>
-        <div class="field">
-          <label for="date">Datum</label>
-          <input id="date" type="date" value="${dr.date}" max="${todayISO()}">
+      <div class="field">
+        <label for="disc">Disziplin</label>
+        <div class="combo">
+          <input id="disc" class="combo-input" role="combobox" aria-expanded="false" aria-controls="disc-list" aria-autocomplete="list"
+            autocomplete="off" autocapitalize="none" spellcheck="false" enterkeyhint="done"
+            value="${esc(d.name)}" placeholder="Kennzahl oder Name, z. B. 2.11">
+          <div class="combo-list" id="disc-list" role="listbox" aria-label="Disziplinen" hidden></div>
         </div>
       </div>
-      <p class="hint" style="margin:-6px 0 14px">${d.series} × ${d.shots} Schuss · ${d.decimal ? 'Zehntelwertung' : 'Ganze Ringe'} · max. ${fmtScore(totalMax(d), d)}</p>
+      <div class="disc-info">
+        <p class="hint">${d.series} × ${d.shots} Schuss · ${d.decimal ? 'Zehntelwertung' : 'Ganze Ringe'} · max. ${fmtScore(totalMax(d), d)}</p>
+        ${ui.adjustDisc ? '' : '<button type="button" class="link-btn" id="adjust-disc">Anpassen</button>'}
+      </div>
+      ${ui.adjustDisc ? `<div class="adjust-box">${discEditForm(d, true)}</div>` : ''}
+      <div class="field">
+        <label for="date">Datum</label>
+        <input id="date" type="date" value="${dr.date}" max="${todayISO()}">
+      </div>
 
       ${dr.totalOnly ? `
         <div class="field">
@@ -657,10 +673,16 @@ function renderEntry() {
 
   validate(false);
 
-  document.getElementById('disc').onchange = e => {
-    dr.disciplineId = e.target.value;
+  bindDiscCombo(document.getElementById('disc'), document.getElementById('disc-list'), d, id => {
+    dr.disciplineId = id;
+    ui.adjustDisc = false;
     render();
-  };
+  });
+  if (ui.adjustDisc) {
+    bindDiscForm(d.id, () => { ui.adjustDisc = false; render(); });
+  } else {
+    document.getElementById('adjust-disc').onclick = () => { ui.adjustDisc = true; render(); };
+  }
   document.getElementById('date').oninput = e => { dr.date = e.target.value; };
   // Notizfeld wächst mit dem Text mit
   const noteEl = document.getElementById('note');
@@ -721,6 +743,7 @@ function renderEntry() {
       total = round1(nums.reduce((a, b) => a + b, 0));
     }
 
+    adoptDisc(d);
     const fields = {
       disciplineId: d.id,
       date: dr.date,
@@ -747,11 +770,115 @@ function renderEntry() {
   };
 }
 
+// Einträge der Disziplin-Auswahl: eigene Disziplinen zuerst, dann die DSB/RSB-Liste
+function discChoices() {
+  const own = state.disciplines.filter(d => !isCatalogId(d.id))
+    .map(d => ({ id: d.id, code: '', title: d.name, name: d.name, meta: '', group: 'Eigene Disziplinen' }));
+  const catalog = DISCIPLINE_CATALOG.map(c => ({
+    id: c.id,
+    code: c.code,
+    title: c.title,
+    name: c.name,
+    meta: [c.distance, c.caliber, c.source === 'RSB' ? 'RSB Liste B' : ''].filter(Boolean).join(' · '),
+    group: c.group,
+  }));
+  return own.concat(catalog);
+}
+
+// Disziplin-Auswahl zum Aufklappen und Tippen: „2.11“ springt auf genau diese Kennzahl,
+// ein Wortteil wie „auflage“ filtert die Liste. Übernommen wird per Antippen oder Enter.
+function bindDiscCombo(input, list, current, onPick) {
+  const choices = discChoices();
+  let shown = [];
+  let active = -1;
+  const norm = s => s.trim().toLowerCase().replace(',', '.');
+
+  function draw(query) {
+    const q = norm(query);
+    shown = q ? choices.filter(c => c.code.toLowerCase().startsWith(q) || `${c.title} ${c.meta}`.toLowerCase().includes(q)) : choices;
+    active = q ? Math.max(0, shown.findIndex(c => c.code.toLowerCase() === q)) : shown.findIndex(c => c.id === current.id);
+    if (shown.length === 0) active = -1;
+    let html = '';
+    let group = null;
+    shown.forEach((c, i) => {
+      if (c.group !== group) { group = c.group; html += `<div class="combo-group">${esc(group)}</div>`; }
+      html += `
+        <div class="combo-opt" role="option" id="disc-opt-${i}" data-i="${i}" aria-selected="false">
+          ${c.code ? `<span class="combo-code">${esc(c.code)}</span>` : ''}
+          <span class="combo-title">${esc(c.title)}${c.meta ? `<small>${esc(c.meta)}</small>` : ''}</span>
+        </div>`;
+    });
+    list.innerHTML = html || '<div class="combo-empty">Keine Disziplin gefunden</div>';
+    mark();
+  }
+
+  function mark() {
+    list.querySelectorAll('.combo-opt').forEach(el => {
+      const on = +el.dataset.i === active;
+      el.classList.toggle('active', on);
+      el.setAttribute('aria-selected', on);
+    });
+    input.setAttribute('aria-activedescendant', active >= 0 ? 'disc-opt-' + active : '');
+    const el = document.getElementById('disc-opt-' + active);
+    if (el) el.scrollIntoView({ block: 'center' });
+  }
+
+  function open() {
+    list.hidden = false;
+    input.setAttribute('aria-expanded', 'true');
+    draw('');
+    input.select();
+  }
+
+  function close() {
+    list.hidden = true;
+    input.setAttribute('aria-expanded', 'false');
+    input.value = current.name;
+  }
+
+  function pick(i) {
+    const c = shown[i];
+    if (!c) return;
+    if (c.id === current.id) { close(); input.blur(); return; }
+    onPick(c.id);
+  }
+
+  input.onfocus = open;
+  input.oninput = () => { list.hidden = false; draw(input.value); };
+  input.onkeydown = e => {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (list.hidden) return open();
+      if (shown.length) active = (active + (e.key === 'ArrowDown' ? 1 : -1) + shown.length) % shown.length;
+      mark();
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (active >= 0) pick(active);
+    } else if (e.key === 'Escape') {
+      close();
+      input.blur();
+    }
+  };
+  // Tastatur zugeklappt oder daneben getippt: eine genau eingegebene Kennzahl gilt als Auswahl
+  input.onblur = () => {
+    if (list.hidden) return;
+    const q = norm(input.value);
+    const exact = q ? shown.findIndex(c => c.code.toLowerCase() === q) : -1;
+    if (exact >= 0) pick(exact); else close();
+  };
+  // Antippen der Liste soll das Feld nicht verlassen (sonst schließt sie vor der Auswahl)
+  list.onmousedown = e => e.preventDefault();
+  list.onclick = e => {
+    const opt = e.target.closest('.combo-opt');
+    if (opt) pick(+opt.dataset.i);
+  };
+}
+
 // ---------- Verlauf ----------
 
 function renderHistory() {
   const filterOpts = ['<option value="all">Alle Disziplinen</option>']
-    .concat(state.disciplines.map(d => `<option value="${d.id}" ${ui.historyFilter === d.id ? 'selected' : ''}>${esc(d.name)}</option>`))
+    .concat(sortedDisciplines().map(d => `<option value="${d.id}" ${ui.historyFilter === d.id ? 'selected' : ''}>${esc(d.name)}</option>`))
     .join('');
 
   let list = state.results;
@@ -840,12 +967,13 @@ function movingAverage(values, k) {
 }
 
 function renderAnalysis() {
-  if (state.disciplines.length === 0) {
-    view.innerHTML = '<div class="card empty">Noch keine Disziplin angelegt.</div>';
+  const discs = sortedDisciplines();
+  if (discs.length === 0) {
+    view.innerHTML = '<div class="card empty">Noch keine Ergebnisse eingetragen.</div>';
     return;
   }
-  if (!discById(ui.analysisDiscId)) {
-    ui.analysisDiscId = (discById(state.defaultDisciplineId) || state.disciplines[0]).id;
+  if (!discs.some(x => x.id === ui.analysisDiscId)) {
+    ui.analysisDiscId = (discs.find(x => x.id === state.defaultDisciplineId) || discs[0]).id;
   }
   const d = discById(ui.analysisDiscId);
   const start = periodStart(ui.period);
@@ -853,7 +981,7 @@ function renderAnalysis() {
   const list = (start ? all.filter(r => r.date >= start) : all)
     .filter(r => ui.kind === 'all' || r.type === ui.kind);
 
-  const discOpts = state.disciplines.map(x =>
+  const discOpts = discs.map(x =>
     `<option value="${x.id}" ${x.id === d.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('');
   const chips = PERIODS.map(([key, label]) =>
     `<button type="button" class="${ui.period === key ? 'active' : ''}" data-period="${key}" aria-pressed="${ui.period === key}">${label}</button>`).join('');
@@ -1117,16 +1245,18 @@ window.addEventListener('resize', () => {
 const ICON_EDIT = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/></svg>';
 const ICON_DELETE = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>';
 
-function discEditForm(d) {
+// fixedName: beim Anpassen im Eintrag – der Name steht schon im Auswahlfeld darüber
+function discEditForm(d, fixedName) {
   const isNew = !d;
   d = d || { name: '', series: 3, shots: 10, decimal: false };
   const isDefault = !isNew && d.id === state.defaultDisciplineId;
   return `
     <div class="disc-edit">
+      ${fixedName ? '' : `
       <div class="field">
         <label for="de-name">Name</label>
         <input id="de-name" value="${esc(d.name)}" placeholder="z. B. Luftgewehr 60 Schuss" maxlength="60">
-      </div>
+      </div>`}
       <div class="row">
         <div class="field">
           <label for="de-series">Serien</label>
@@ -1157,8 +1287,51 @@ function discEditForm(d) {
     </div>`;
 }
 
+// Speichern des Disziplin-Formulars (Optionen und „Anpassen“ beim Eintrag); id = 'new' für eine neue Disziplin
+function bindDiscForm(id, onClose) {
+  document.getElementById('de-cancel').onclick = onClose;
+  document.getElementById('de-save').onclick = () => {
+    const nameEl = document.getElementById('de-name');
+    const name = nameEl ? nameEl.value.trim() : null;
+    const series = Number(document.getElementById('de-series').value);
+    const shots = Number(document.getElementById('de-shots').value);
+    const decimal = document.getElementById('de-decimal').value === '1';
+    const makeDefault = document.getElementById('de-default').checked;
+    const err = document.getElementById('de-error');
+    const fail = m => { err.hidden = false; err.textContent = m; };
+
+    if (nameEl) {
+      if (!name) return fail('Bitte einen Namen eingeben');
+      if (state.disciplines.some(x => x.id !== id && x.name.toLowerCase() === name.toLowerCase())) return fail('Eine Disziplin mit diesem Namen gibt es schon');
+    }
+    if (!Number.isInteger(series) || series < 1 || series > 20) return fail('Serien: 1 bis 20');
+    if (!Number.isInteger(shots) || shots < 1 || shots > 100) return fail('Schuss pro Serie: 1 bis 100');
+
+    let d;
+    if (id === 'new') {
+      d = newDiscipline(name, decimal);
+      Object.assign(d, { series, shots });
+      state.disciplines.push(d);
+      toast('Disziplin hinzugefügt');
+    } else {
+      d = adoptDisc(discById(id));
+      touch(Object.assign(d, { series, shots, decimal }, nameEl ? { name } : {}));
+      toast('Disziplin gespeichert');
+    }
+    if (makeDefault) {
+      state.defaultDisciplineId = d.id;
+      state.settingsUpdatedAt = Date.now();
+      ui.analysisDiscId = null;
+    }
+    normalizeState(state);
+    saveState();
+    onClose();
+  };
+}
+
 function renderOptions() {
-  const items = state.disciplines.map(d => {
+  const own = state.disciplines.filter(d => !isCatalogId(d.id));
+  const items = own.map(d => {
     if (ui.editDiscId === d.id) return discEditForm(d);
     const count = state.results.filter(r => r.disciplineId === d.id).length;
     return `
@@ -1193,8 +1366,14 @@ function renderOptions() {
       </div>
     </div>
 
-    ${collapsible('disciplines', 'Disziplinen', `${state.disciplines.length}`, `
-      ${items || '<p class="hint">Noch keine Disziplin angelegt.</p>'}
+    ${collapsible('disciplines', 'Disziplinen', '', `
+      <div class="disc-item">
+        <div>
+          <div class="disc-name">Disziplinen nach DSB</div>
+          <div class="disc-meta">${DISCIPLINE_CATALOG.length} Disziplinen aus der DSB-Sportordnung und der RSB-Liste B – Auswahl beim Eintrag über Kennzahl oder Name.</div>
+        </div>
+      </div>
+      ${own.length ? `<div class="label own-label">Eigene Disziplinen</div>${items}` : ''}
       ${ui.editDiscId === 'new' ? `<div style="margin-top:12px">${discEditForm(null)}</div>` : ''}
       ${ui.editDiscId ? '' : '<div class="actions"><button class="btn primary" id="add-disc">+ Disziplin hinzufügen</button></div>'}`)}
 
@@ -1231,7 +1410,7 @@ function renderOptions() {
       ${account.isAdmin ? `<a class="link-subtle" href="dashboard/" target="_blank" rel="noopener">Vereins-Dashboard öffnen ↗</a>` : ''}
     </div>
 
-    <p class="hint" style="text-align:center">${state.results.length} Ergebnisse · ${state.disciplines.length} Disziplinen</p>`;
+    <p class="hint" style="text-align:center">${state.results.length} Ergebnisse</p>`;
 
   view.querySelectorAll('[data-section]').forEach(b => b.onclick = () => {
     const key = b.dataset.section;
@@ -1283,40 +1462,7 @@ function renderOptions() {
   });
 
   if (ui.editDiscId) {
-    document.getElementById('de-cancel').onclick = () => { ui.editDiscId = null; render(); };
-    document.getElementById('de-save').onclick = () => {
-      const name = document.getElementById('de-name').value.trim();
-      const series = Number(document.getElementById('de-series').value);
-      const shots = Number(document.getElementById('de-shots').value);
-      const decimal = document.getElementById('de-decimal').value === '1';
-      const makeDefault = document.getElementById('de-default').checked;
-      const err = document.getElementById('de-error');
-      const fail = m => { err.hidden = false; err.textContent = m; };
-
-      if (!name) return fail('Bitte einen Namen eingeben');
-      if (state.disciplines.some(x => x.id !== ui.editDiscId && x.name.toLowerCase() === name.toLowerCase())) return fail('Eine Disziplin mit diesem Namen gibt es schon');
-      if (!Number.isInteger(series) || series < 1 || series > 20) return fail('Serien: 1 bis 20');
-      if (!Number.isInteger(shots) || shots < 1 || shots > 100) return fail('Schuss pro Serie: 1 bis 100');
-
-      if (ui.editDiscId === 'new') {
-        const d = newDiscipline(name, decimal);
-        d.series = series;
-        d.shots = shots;
-        state.disciplines.push(d);
-        if (makeDefault) state.defaultDisciplineId = d.id;
-        toast('Disziplin hinzugefügt');
-      } else {
-        touch(Object.assign(discById(ui.editDiscId), { name, series, shots, decimal }));
-        if (makeDefault) state.defaultDisciplineId = ui.editDiscId;
-        toast('Disziplin gespeichert');
-      }
-      if (makeDefault) { ui.analysisDiscId = null; state.settingsUpdatedAt = Date.now(); }
-      ui.editDiscId = null;
-      ui.draft = null;
-      normalizeState(state);
-      saveState();
-      render();
-    };
+    bindDiscForm(ui.editDiscId, () => { ui.editDiscId = null; ui.draft = null; render(); });
   }
 
   document.getElementById('export-json').onclick = () => {
@@ -1646,7 +1792,7 @@ async function startSession(user, cached) {
   rememberAccount();
   state = loadState(account.userId);
   sync.lastSync = null;
-  Object.assign(ui, { tab: 'entry', draft: null, editId: null, historyFilter: 'all', analysisDiscId: null, selectedPoint: null, editDiscId: null, editCompId: null });
+  Object.assign(ui, { tab: 'entry', draft: null, editId: null, historyFilter: 'all', analysisDiscId: null, selectedPoint: null, editDiscId: null, adjustDisc: false, editCompId: null });
   document.body.classList.remove('logged-out');
   setTab('entry');
   setSyncStatus(navigator.onLine ? 'idle' : 'offline');

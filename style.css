@@ -12,6 +12,9 @@
   --positive: #16803c;
   --negative: #c0392b;
   --danger: #c0392b;
+  --field: #eef1f5;        /* Eingabefelder */
+  --field-raised: #ffffff; /* Eingabefelder in grau hinterlegten Formularen */
+  --field-border: #d9dfe7;
   --radius: 14px;
   --nav-h: 64px;
   color-scheme: light;
@@ -32,6 +35,9 @@
     --positive: #4cc27a;
     --negative: #ff7a6b;
     --danger: #ff7a6b;
+    --field: #2d3642;
+    --field-raised: #343e4b;
+    --field-border: #46525f;
     color-scheme: dark;
   }
 }
@@ -50,6 +56,9 @@
   --positive: #4cc27a;
   --negative: #ff7a6b;
   --danger: #ff7a6b;
+  --field: #2d3642;
+  --field-raised: #343e4b;
+  --field-border: #46525f;
   color-scheme: dark;
 }
 
@@ -256,12 +265,14 @@ input, select, textarea {
   width: 100%;
   font: inherit;
   color: var(--text);
-  background: var(--surface-2);
-  border: 1px solid var(--border);
+  background: var(--field);
+  border: 1px solid var(--field-border);
   border-radius: 10px;
   padding: 11px 12px;
   min-height: 46px;
 }
+
+::placeholder { color: var(--text-muted); opacity: .8; }
 
 textarea { min-height: 70px; resize: vertical; }
 
@@ -273,8 +284,8 @@ input:focus, select:focus, textarea:focus {
 input.invalid { outline: 2px solid var(--danger); outline-offset: -1px; }
 
 /* Aufklappliste der Dropdowns im gleichen Stil wie das Feld (Chrome 135+, sonst normale Liste) */
-select { --picker-bg: var(--surface-2); --option-hover: var(--surface); }
-.disc-edit select { --picker-bg: var(--surface); --option-hover: var(--surface-2); }
+select { --picker-bg: var(--field); --option-hover: var(--surface); }
+.disc-edit select { --picker-bg: var(--field-raised); --option-hover: var(--surface-2); }
 
 @supports (appearance: base-select) {
   select,
@@ -327,6 +338,96 @@ select { --picker-bg: var(--surface-2); --option-hover: var(--surface); }
 
   select option::checkmark { display: none; }
 }
+
+/* Disziplin-Auswahl beim Eintrag: Feld zum Tippen mit aufklappender Liste */
+.combo { position: relative; }
+
+.combo::after {
+  content: "";
+  position: absolute;
+  right: 16px;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid var(--text-muted);
+  border-bottom: 2px solid var(--text-muted);
+  transform: translateY(-70%) rotate(45deg);
+  pointer-events: none;
+}
+
+.combo-input {
+  min-height: 54px;
+  padding-right: 40px;
+  font-size: 17px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+}
+
+.combo-list {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 12;
+  max-height: min(55vh, 380px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 4px;
+  background: var(--field-raised);
+  border: 1px solid var(--field-border);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / .25);
+}
+
+.combo-list[hidden] { display: none; }
+
+.combo-group {
+  position: sticky;
+  top: -4px;
+  padding: 8px 10px 4px;
+  background: var(--field-raised);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+
+.combo-opt {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-height: 44px;
+  padding: 8px 10px;
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.combo-opt:hover { background: var(--surface-2); }
+.combo-opt.active { background: var(--accent); color: var(--accent-text); }
+.combo-code { flex-shrink: 0; min-width: 4.4em; font-weight: 700; font-variant-numeric: tabular-nums; }
+.combo-title { min-width: 0; }
+.combo-title small { display: block; font-size: 12px; color: var(--text-muted); }
+.combo-opt.active small { color: inherit; opacity: .8; }
+.combo-empty { padding: 12px 10px; color: var(--text-muted); font-size: 14px; }
+
+.disc-info { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: -6px 0 14px; }
+.disc-info .hint { margin: 0; }
+
+.link-btn {
+  flex-shrink: 0;
+  padding: 4px 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.adjust-box { margin-bottom: 14px; }
+.own-label { margin: 18px 0 8px; }
 
 .row { display: flex; gap: 10px; }
 .row > * { flex: 1; min-width: 0; }
@@ -801,7 +902,7 @@ select { --picker-bg: var(--surface-2); --option-hover: var(--surface); }
   padding: 14px;
 }
 
-.disc-edit input, .disc-edit select { background: var(--surface); }
+.disc-edit input, .disc-edit select { background: var(--field-raised); }
 
 /* Bestätigungsfenster */
 dialog.confirm {
