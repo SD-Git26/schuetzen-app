@@ -1821,7 +1821,7 @@ function renderAuth(message) {
         <form id="auth-form" novalidate>
           <div class="field">
             <label for="a-username">Benutzername</label>
-            <input id="a-username" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" value="${esc(f.username)}" placeholder="So erscheinst du in der Vereinsauswertung" maxlength="30">
+            <input id="a-username" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" value="${esc(f.username)}" placeholder="${reg ? 'So erscheinst du in der Vereinsauswertung' : ''}" maxlength="30">
           </div>
           <div class="field">
             <label for="a-password">Passwort</label>
