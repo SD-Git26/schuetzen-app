@@ -138,7 +138,7 @@ function renderHeader() {
   // Benutzerbereich steht am PC oben rechts und am Handy am Seitenende (per CSS umgeschaltet)
   const theme = document.documentElement.dataset.theme;
   const userHtml = dash.me ? `
-    <span class="dash-user-name">${esc(dash.me.display_name)}</span>
+    <span class="dash-user-name">${esc(dash.me.username)}</span>
     <button type="button" class="btn small" data-theme-toggle title="Hell/Dunkel umschalten">${theme === 'dark' ? 'Hell' : 'Dunkel'}</button>
     <button type="button" class="btn small" data-logout>Abmelden</button>` : '';
   document.getElementById('dash-user').innerHTML = userHtml;
@@ -230,7 +230,7 @@ async function loadAll(userId, { silent = false } = {}) {
   if (!dash.me.is_admin) { renderNoAccess(); return; }
 
   const [profiles, states, club] = await Promise.all([
-    db.from('profiles').select('*').order('display_name'),
+    db.from('profiles').select('*').order('username'),
     db.from('user_state').select('user_id, state, updated_at'),
     db.from('club_settings').select('club_name').eq('id', 1).maybeSingle(),
   ]);
@@ -280,17 +280,18 @@ function buildData(profiles, states) {
   dash.members = profiles.map(p => ({
     id: p.id,
     username: p.username,
-    displayName: p.display_name,
+    displayName: p.username, // im Dashboard erscheint nur der Benutzername, kein echter Name
     isAdmin: p.is_admin,
     createdAt: p.created_at,
-    ageClassId: (stateOf[p.id] && ageClassById(stateOf[p.id].ageClassId)) ? stateOf[p.id].ageClassId : null,
+    ageClassId: (stateOf[p.id] && stateOf[p.id].shareWithClub !== false && ageClassById(stateOf[p.id].ageClassId)) ? ageClassById(stateOf[p.id].ageClassId).id : null,
     total: 0,
     lastDate: null,
   }));
 
   for (const m of dash.members) {
     const st = stateOf[m.id];
-    if (!st || !Array.isArray(st.results)) continue;
+    // Ohne Zustimmung zur Vereinsanalyse (Optionen der App) werden keine Ergebnisse ausgewertet
+    if (!st || !Array.isArray(st.results) || st.shareWithClub === false) continue;
     const discById = Object.fromEntries((st.disciplines || []).map(d => [d.id, d]));
     const compById = Object.fromEntries((st.competitionTypes || []).map(c => [c.id, c.name]));
     for (const r of st.results) {
@@ -316,7 +317,7 @@ function buildData(profiles, states) {
         location: comp ? comp.location || '' : '',
         note: r.note || '',
         // Altersklasse des Ergebnisses; ältere Einträge ohne Angabe zählen zur Standard-Klasse des Mitglieds
-        ageClassId: ageClassById(r.ageClassId) ? r.ageClassId : m.ageClassId,
+        ageClassId: ageClassById(r.ageClassId) ? ageClassById(r.ageClassId).id : m.ageClassId,
       });
       m.total++;
       if (!m.lastDate || r.date > m.lastDate) m.lastDate = r.date;
@@ -398,11 +399,7 @@ function filterBar({ showKind = true } = {}) {
         `<button type="button" class="${dash.kind === k ? 'active' : ''}" data-kind="${k}" aria-pressed="${dash.kind === k}">${l}</button>`).join('')}</div>` : ''}
       <select id="f-age" class="f-age" aria-label="Altersklasse">
         <option value="all">Alle Altersklassen</option>
-        ${AGE_CLASS_GROUPS.map(([group]) => `
-          <optgroup label="${esc(group)}">
-            ${AGE_CLASSES.filter(c => c.group === group).map(c =>
-              `<option value="${c.id}" ${c.id === dash.ageClass ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}
-          </optgroup>`).join('')}
+        ${AGE_CLASSES.map(c => `<option value="${c.id}" ${c.id === dash.ageClass ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}
       </select>
     </div>`;
 }
@@ -503,7 +500,7 @@ function renderRanking() {
       <tr>
         <td><input type="checkbox" data-cmp="${r.member.id}" ${checked ? 'checked' : ''} ${full ? 'disabled title="Höchstens 6 Schützen gleichzeitig"' : ''} aria-label="${esc(r.member.displayName)} vergleichen"></td>
         <td class="num"><span class="rank ${i < 3 && key === 'avg' && dir < 0 ? 'top' : ''}">${i + 1}.</span></td>
-        <td><div class="member-cell">${color ? `<span class="swatch" style="background:${color}"></span>` : ''}<div><div>${esc(r.member.displayName)}</div><div class="disc-meta">@${esc(r.member.username)}</div></div></div></td>
+        <td><div class="member-cell">${color ? `<span class="swatch" style="background:${color}"></span>` : ''}<div>${esc(r.member.displayName)}</div></div></td>
         <td class="num">${r.n}</td>
         <td class="num"><b>${fmtAvg(r.avg)}</b></td>
         <td class="num" title="${fmtDate(r.best.date)}">${fmtScore(r.best.total)}</td>
@@ -551,8 +548,8 @@ function renderRanking() {
 function exportRankingCsv(rows) {
   const cell = v => `"${String(v).replace(/"/g, '""')}"`;
   const num = v => (typeof v === 'number' ? String(Math.round(v * 100) / 100).replace('.', ',') : '');
-  const lines = [['Platz', 'Name', 'Benutzername', 'Einträge', 'Durchschnitt', 'Bestwert', `Ø letzte ${TREND_WINDOW}`, 'Trend', 'Letzter Eintrag'].map(cell).join(';')];
-  rows.forEach((r, i) => lines.push([i + 1, r.member.displayName, r.member.username, r.n, num(r.avg), num(r.best.total), num(r.avgLast), num(r.trend), fmtDate(r.lastDate)].map(cell).join(';')));
+  const lines = [['Platz', 'Benutzername', 'Einträge', 'Durchschnitt', 'Bestwert', `Ø letzte ${TREND_WINDOW}`, 'Trend', 'Letzter Eintrag'].map(cell).join(';')];
+  rows.forEach((r, i) => lines.push([i + 1, r.member.username, r.n, num(r.avg), num(r.best.total), num(r.avgLast), num(r.trend), fmtDate(r.lastDate)].map(cell).join(';')));
   download(`hotshot-rangliste-${discOf().name}-${isoOf(new Date())}.csv`, '﻿' + lines.join('\r\n'), 'text/csv');
 }
 
@@ -772,7 +769,7 @@ window.addEventListener('resize', () => {
 function renderMembers() {
   const rows = dash.members.slice().sort((a, b) => a.displayName.localeCompare(b.displayName, 'de')).map(m => `
     <tr>
-      <td><div>${esc(m.displayName)}${m.id === dash.me.id ? ' <span class="dash-meta">(du)</span>' : ''}</div><div class="disc-meta">@${esc(m.username)}</div></td>
+      <td><div>${esc(m.displayName)}${m.id === dash.me.id ? ' <span class="dash-meta">(du)</span>' : ''}</div></td>
       <td>${fmtDate(m.createdAt)}</td>
       <td class="num">${m.total}</td>
       <td class="num">${fmtDate(m.lastDate)}</td>
@@ -881,13 +878,13 @@ function exportAllCsv() {
   const num = v => String(v).replace('.', ',');
   const discName = Object.fromEntries(dash.disciplines.map(d => [d.key, d.name]));
   const maxSeries = Math.max(0, ...dash.results.map(r => (r.series ? r.series.length : 0)));
-  const head = ['Name', 'Benutzername', 'Datum', 'Disziplin', 'Art', 'Wettkampf', 'Ort', 'Gesamt'];
+  const head = ['Benutzername', 'Datum', 'Disziplin', 'Art', 'Wettkampf', 'Ort', 'Gesamt'];
   for (let i = 1; i <= maxSeries; i++) head.push(`Serie ${i}`);
   head.push('Notiz');
   const lines = [head.map(cell).join(';')];
   for (const r of dash.results) {
     const m = memberById(r.memberId);
-    const row = [m.displayName, m.username, fmtDate(r.date), discName[r.key], r.type === 'competition' ? 'Wettkampf' : 'Training', r.compName, r.location, num(r.total)];
+    const row = [m.username, fmtDate(r.date), discName[r.key], r.type === 'competition' ? 'Wettkampf' : 'Training', r.compName, r.location, num(r.total)];
     for (let i = 0; i < maxSeries; i++) row.push(r.series && r.series[i] !== undefined ? num(r.series[i]) : '');
     row.push(r.note);
     lines.push(row.map(cell).join(';'));

@@ -138,21 +138,20 @@ body.logged-out #toast { bottom: 24px; }
 .auth-name { font-size: 28px; font-weight: 800; letter-spacing: -.01em; }
 .auth code { background: var(--surface-2); padding: 1px 5px; border-radius: 4px; }
 
+/* Umschalter Anmelden/Registrieren als Reiter mit Unterstrich –
+   bewusst anders als der gefüllte Anmelden-Button darunter */
 .segmented {
   display: flex;
-  gap: 4px;
-  padding: 4px;
-  margin-bottom: 16px;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: 12px;
+  margin: -4px 0 20px;
+  border-bottom: 1px solid var(--border);
 }
 
 .segmented button {
   flex: 1;
-  min-height: 40px;
+  min-height: 44px;
+  margin-bottom: -1px;
   border: 0;
-  border-radius: 8px;
+  border-bottom: 3px solid transparent;
   background: none;
   color: var(--text-muted);
   font: inherit;
@@ -160,7 +159,8 @@ body.logged-out #toast { bottom: 24px; }
   cursor: pointer;
 }
 
-.segmented button.active { background: var(--accent); color: var(--accent-text); }
+.segmented button:hover { color: var(--text); }
+.segmented button.active { color: var(--text); border-bottom-color: var(--accent); }
 
 .btn:disabled { opacity: .6; cursor: default; }
 a.btn { text-decoration: none; }
@@ -858,6 +858,8 @@ select { --picker-bg: var(--field); --option-hover: var(--surface); }
 }
 
 .theme-toggle button.active { background: var(--accent); color: var(--accent-text); }
+.text-toggle button { width: 56px; font: inherit; font-size: 14px; font-weight: 600; }
+.option-gap { margin-top: 14px; }
 
 .theme-toggle svg {
   width: 22px; height: 22px;

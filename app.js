@@ -11,8 +11,9 @@ const LAST_USER_KEY = 'hotshot-last-user';
 const TREND_WINDOW = 5;
 const TOMBSTONE_DAYS = 365;
 
-// Vorauswahl beim Eintrag, solange kein Standard festgelegt ist: 2.10 Luftpistole
-const DEFAULT_DISC_ID = 'dsb-2.10';
+// Vorauswahl beim Eintrag, solange kein Standard festgelegt ist: 1.10 Luftgewehr.
+// Danach ist die zuletzt über „Anpassen“ gespeicherte Disziplin der Standard.
+const DEFAULT_DISC_ID = 'dsb-1.10';
 
 // Reihenfolge = Anzeige in Optionen und Auswahl; selbst angelegte Wettkampfarten folgen danach
 const DEFAULT_COMPETITION_TYPES = [
@@ -76,7 +77,12 @@ function normalizeState(s) {
   // Gelöschte IDs mit Zeitpunkt, damit das Löschen auch auf anderen Geräten ankommt
   if (!s.deleted || typeof s.deleted !== 'object') s.deleted = {};
   if (typeof s.settingsUpdatedAt !== 'number') s.settingsUpdatedAt = 0;
-  if (!ageClassById(s.ageClassId)) s.ageClassId = null;
+  // Entfallene Altersklassen durch ihren Ersatz ersetzen
+  // Freigabe für das Vereins-Dashboard; ohne Angabe (ältere Stände) gilt sie als erteilt
+  if (typeof s.shareWithClub !== 'boolean') s.shareWithClub = true;
+  const ageId = id => (ageClassById(id) ? ageClassById(id).id : null);
+  s.ageClassId = ageId(s.ageClassId);
+  s.results.forEach(r => { if (r.ageClassId) r.ageClassId = ageId(r.ageClassId); });
   // Ältere Einträge ohne Angabe gelten als Training
   s.results.forEach(r => { if (r.type !== 'competition') { r.type = 'training'; r.competition = null; } });
   return s;
@@ -112,6 +118,7 @@ function mergeStates(a, b) {
     deleted,
     defaultDisciplineId: newer.defaultDisciplineId,
     ageClassId: newer.ageClassId,
+    shareWithClub: newer.shareWithClub,
     settingsUpdatedAt: newer.settingsUpdatedAt,
   });
 }
@@ -563,11 +570,8 @@ function freshDraft() {
 
 // Auswahlliste der Altersklassen; long = mit Alter und Jahrgängen (in den Optionen)
 function ageClassOptions(selectedId, long) {
-  return `<option value="">${long ? '– keine Angabe –' : '–'}</option>` + AGE_CLASS_GROUPS.map(([group]) => `
-    <optgroup label="${esc(group)}">
-      ${AGE_CLASSES.filter(c => c.group === group).map(c =>
-        `<option value="${c.id}" ${c.id === selectedId ? 'selected' : ''}>${esc(c.name)}${long ? ` · ${esc(c.age)} J. (${esc(c.years)})` : ''}</option>`).join('')}
-    </optgroup>`).join('');
+  return `<option value="">${long ? '– keine Angabe –' : '–'}</option>` + AGE_CLASSES.map(c =>
+    `<option value="${c.id}" ${c.id === selectedId ? 'selected' : ''}>${esc(c.name)}${long ? ` · ${esc(c.age)} J. (${esc(c.years)})` : ''}</option>`).join('');
 }
 
 function draftFromResult(r) {
@@ -590,6 +594,15 @@ function draftFromResult(r) {
 function renderEntry() {
   if (!ui.draft || !discById(ui.draft.disciplineId)) ui.draft = freshDraft();
   const dr = ui.draft;
+  // Solange beim neuen Eintrag nichts selbst gewählt wurde, gelten die aktuellen Standards –
+  // auch wenn sie erst nach dem Start (Abgleich mit der Cloud) ankommen
+  if (!ui.editId) {
+    if (!dr.ageTouched) dr.ageClassId = state.ageClassId || '';
+    if (!dr.discTouched) {
+      const std = discById(state.defaultDisciplineId) || discById(DEFAULT_DISC_ID);
+      if (std && std.id !== dr.disciplineId) dr.disciplineId = std.id;
+    }
+  }
   const d = discById(dr.disciplineId);
 
   // Serienanzahl an Disziplin anpassen (bestehende Eingaben bleiben erhalten)
@@ -711,6 +724,7 @@ function renderEntry() {
 
   bindDiscCombo(document.getElementById('disc'), document.getElementById('disc-list'), d, id => {
     dr.disciplineId = id;
+    dr.discTouched = true;
     ui.adjustDisc = false;
     render();
   });
@@ -720,7 +734,7 @@ function renderEntry() {
     document.getElementById('adjust-disc').onclick = () => { ui.adjustDisc = true; render(); };
   }
   document.getElementById('date').oninput = e => { dr.date = e.target.value; };
-  document.getElementById('entry-age').onchange = e => { dr.ageClassId = e.target.value; };
+  document.getElementById('entry-age').onchange = e => { dr.ageClassId = e.target.value; dr.ageTouched = true; };
   // Notizfeld wächst mit dem Text mit
   const noteEl = document.getElementById('note');
   const fitNote = () => { noteEl.style.height = 'auto'; noteEl.style.height = noteEl.scrollHeight + 2 + 'px'; };
@@ -1354,11 +1368,12 @@ function discEditForm(d, fixedName) {
           <option value="hits" ${d.hits ? 'selected' : ''}>Treffer (max. 1)</option>
         </select>
       </div>
+      ${fixedName ? '<p class="hint" style="margin:-6px 0 14px">Nach dem Speichern ist diese Disziplin beim Eintrag vorausgewählt.</p>' : `
       <label class="switch">
         <span>Als Standard festlegen</span>
         <input type="checkbox" id="de-default" ${isDefault ? 'checked disabled' : ''}>
       </label>
-      ${isDefault ? '<p class="hint" style="margin:-8px 0 14px">Diese Disziplin ist beim Eintragen vorausgewählt. Um das zu ändern, lege eine andere Disziplin als Standard fest.</p>' : ''}
+      ${isDefault ? '<p class="hint" style="margin:-8px 0 14px">Diese Disziplin ist beim Eintragen vorausgewählt. Um das zu ändern, lege eine andere Disziplin als Standard fest.</p>' : ''}`}
       <div id="de-error" class="error" hidden></div>
       <div class="actions">
         <button class="btn" id="de-cancel">Abbrechen</button>
@@ -1377,7 +1392,9 @@ function bindDiscForm(id, onClose) {
     const shots = Number(document.getElementById('de-shots').value);
     const decimal = document.getElementById('de-decimal').value === '1';
     const hits = document.getElementById('de-decimal').value === 'hits';
-    const makeDefault = document.getElementById('de-default').checked;
+    // Beim „Anpassen“ im Eintrag (ohne Schalter) wird die Disziplin immer zum Standard
+    const defaultEl = document.getElementById('de-default');
+    const makeDefault = defaultEl ? defaultEl.checked : true;
     const err = document.getElementById('de-error');
     const fail = m => { err.hidden = false; err.textContent = m; };
 
@@ -1484,13 +1501,22 @@ function renderOptions() {
     <div class="card">
       <h2>Konto</h2>
       <div class="account-row">
-        <div class="avatar" aria-hidden="true">${esc((account.displayName || account.username).slice(0, 1).toUpperCase())}</div>
+        <div class="avatar" aria-hidden="true">${esc(account.username.slice(0, 1).toUpperCase())}</div>
         <div class="account-name">
-          <div class="disc-name">${esc(account.displayName || account.username)}${account.isAdmin ? ' <span class="badge">Admin</span>' : ''}</div>
-          <div class="disc-meta">@${esc(account.username)}</div>
+          <div class="disc-name">${esc(account.username)}${account.isAdmin ? ' <span class="badge">Admin</span>' : ''}</div>
         </div>
       </div>
       <p class="hint" id="sync-detail">${syncDetailText()}</p>
+      <div class="option-row option-gap">
+        <span class="label" style="margin:0">Vereinsanalyse akzeptieren</span>
+        <div class="theme-toggle text-toggle" role="group" aria-label="Vereinsanalyse akzeptieren">
+          ${[[true, 'Ja'], [false, 'Nein']].map(([v, l]) => `
+            <button type="button" data-share="${v}" aria-pressed="${state.shareWithClub === v}" class="${state.shareWithClub === v ? 'active' : ''}">${l}</button>`).join('')}
+        </div>
+      </div>
+      <p class="hint">${state.shareWithClub
+        ? 'Deine Ergebnisse erscheinen unter deinem Benutzernamen im Vereins-Dashboard.'
+        : 'Deine Ergebnisse werden nicht an das Vereins-Dashboard geliefert. Sie bleiben in deinem Konto gesichert.'}</p>
       <div class="actions">
         <button class="btn ${sync.status === 'auth' ? 'primary' : ''}" id="logout">${sync.status === 'auth' ? 'Neu anmelden' : 'Abmelden'}</button>
       </div>
@@ -1507,6 +1533,16 @@ function renderOptions() {
     b.setAttribute('aria-expanded', open);
   });
 
+  view.querySelectorAll('[data-share]').forEach(b => b.onclick = () => {
+    const share = b.dataset.share === 'true';
+    if (share === state.shareWithClub) return;
+    state.shareWithClub = share;
+    state.settingsUpdatedAt = Date.now();
+    saveState();
+    render();
+    toast(share ? 'Vereinsanalyse akzeptiert' : 'Keine Daten mehr an das Vereins-Dashboard');
+  });
+
   view.querySelectorAll('[data-theme-btn]').forEach(b => b.onclick = () => {
     setTheme(b.dataset.themeBtn);
     view.querySelectorAll('[data-theme-btn]').forEach(x => {
@@ -1520,9 +1556,7 @@ function renderOptions() {
 
   document.getElementById('age-class').onchange = e => {
     state.ageClassId = e.target.value || null;
-    state.settingsUpdatedAt = Date.now();
-    if (ui.draft && !ui.editId) ui.draft.ageClassId = state.ageClassId || '';
-    saveState();
+    state.settingsUpdatedAt = Date.now();    saveState();
     render();
     toast(state.ageClassId ? `Altersklasse: ${ageClassById(state.ageClassId).name}` : 'Altersklasse entfernt');
   };
@@ -1601,6 +1635,8 @@ function renderOptions() {
       if (!isValidState(data)) throw new Error('format');
       const msg = `Backup mit ${data.results.length} Ergebnissen und ${data.disciplines.length} Disziplinen laden?\n\nDie aktuellen Daten in deinem Konto werden dabei ersetzt – auch in der Cloud und auf deinen anderen Geräten.`;
       if (!(await askConfirm(msg, 'Backup laden'))) return;
+      // Ältere Backups kennen die Vereinsanalyse-Einstellung noch nicht: die aktuelle bleibt dann erhalten
+      if (typeof data.shareWithClub !== 'boolean') data.shareWithClub = state.shareWithClub;
       const loaded = normalizeState(data);
       // Alles Bisherige, was im Backup fehlt, als gelöscht vermerken; alles aus dem Backup gilt als neuester Stand
       const keep = new Set([...loaded.disciplines, ...loaded.competitionTypes, ...loaded.results].map(x => x.id));
@@ -1737,7 +1773,7 @@ function download(filename, content, type) {
 
 const authUi = {
   mode: 'login', // login | register
-  fields: { username: '', displayName: '', clubCode: '', password: '', password2: '' },
+  fields: { username: '', clubCode: '', password: '', password2: '' },
   busy: false,
 };
 
@@ -1785,13 +1821,8 @@ function renderAuth(message) {
         <form id="auth-form" novalidate>
           <div class="field">
             <label for="a-username">Benutzername</label>
-            <input id="a-username" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" value="${esc(f.username)}" placeholder="z. B. max.muster" maxlength="30">
+            <input id="a-username" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" value="${esc(f.username)}" placeholder="So erscheinst du in der Vereinsauswertung" maxlength="30">
           </div>
-          ${reg ? `
-          <div class="field">
-            <label for="a-display">Vor- und Nachname</label>
-            <input id="a-display" name="displayName" autocomplete="name" value="${esc(f.displayName)}" placeholder="So erscheinst du in der Vereinsauswertung" maxlength="60">
-          </div>` : ''}
           <div class="field">
             <label for="a-password">Passwort</label>
             <input id="a-password" name="password" type="password" autocomplete="${reg ? 'new-password' : 'current-password'}" value="${esc(f.password)}">
@@ -1831,7 +1862,6 @@ function renderAuth(message) {
     if (uErr) return fail(uErr);
     if (!f.password) return fail('Bitte ein Passwort eingeben');
     if (reg) {
-      if (!f.displayName.trim()) return fail('Bitte Vor- und Nachnamen eingeben');
       if (f.password.length < 6) return fail('Das Passwort muss mindestens 6 Zeichen haben');
       if (f.password !== f.password2) return fail('Die Passwörter stimmen nicht überein');
       if (!f.clubCode.trim()) return fail('Bitte den Vereinscode eingeben');
@@ -1844,10 +1874,11 @@ function renderAuth(message) {
     btn.textContent = 'Bitte warten …';
     try {
       const session = reg
-        ? await Cloud.signUp({ username: f.username, password: f.password, displayName: f.displayName.trim(), clubCode: f.clubCode.trim() })
+        // Der Benutzername ist der einzige Name – er wird auch als Anzeigename gespeichert
+        ? await Cloud.signUp({ username: f.username, password: f.password, displayName: f.username.trim(), clubCode: f.clubCode.trim() })
         : await Cloud.signIn(f.username, f.password);
       authUi.busy = false;
-      authUi.fields = { username: '', displayName: '', clubCode: '', password: '', password2: '' };
+      authUi.fields = { username: '', clubCode: '', password: '', password2: '' };
       await startSession(session.user);
       if (reg) toast('Willkommen bei Hot Shot!');
     } catch (err) {
@@ -1864,7 +1895,6 @@ function authBrand() {
     <div class="auth-brand">
       <img src="icons/icon.svg" alt="" width="72" height="72">
       <div class="auth-name">Hot Shot</div>
-      <p class="hint">Deine Schießergebnisse – sicher in der Cloud.</p>
     </div>`;
 }
 
