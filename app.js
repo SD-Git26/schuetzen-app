@@ -1834,12 +1834,12 @@ function renderAuth(message) {
           </div>
           <div class="field">
             <label for="a-password">Passwort</label>
-            <input id="a-password" name="password" type="password" autocomplete="${reg ? 'new-password' : 'current-password'}" value="${esc(f.password)}">
+            ${passwordField('a-password', 'password', reg ? 'new-password' : 'current-password', f.password)}
           </div>
           ${reg ? `
           <div class="field">
             <label for="a-password2">Passwort wiederholen</label>
-            <input id="a-password2" name="password2" type="password" autocomplete="new-password" value="${esc(f.password2)}">
+            ${passwordField('a-password2', 'password2', 'new-password', f.password2)}
           </div>
           <div class="field">
             <label for="a-club">Vereinscode</label>
@@ -1859,6 +1859,15 @@ function renderAuth(message) {
     renderAuth();
   });
   view.querySelectorAll('#auth-form input').forEach(el => el.oninput = () => { f[el.name] = el.value; });
+  // Auge: Passwort im Klartext zeigen bzw. wieder verbergen
+  view.querySelectorAll('[data-pw-toggle]').forEach(b => b.onclick = () => {
+    const input = document.getElementById(b.dataset.pwToggle);
+    const show = input.type === 'password';
+    input.type = show ? 'text' : 'password';
+    b.setAttribute('aria-pressed', show);
+    b.setAttribute('aria-label', show ? 'Passwort verbergen' : 'Passwort anzeigen');
+    b.innerHTML = show ? ICON_EYE_OFF : ICON_EYE;
+  });
 
   const form = document.getElementById('auth-form');
   const errEl = document.getElementById('auth-error');
@@ -1897,6 +1906,18 @@ function renderAuth(message) {
       fail(Cloud.errorText(err));
     }
   };
+}
+
+const ICON_EYE = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
+const ICON_EYE_OFF = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/><path d="M4 20L20 4"/></svg>';
+
+// Passwortfeld mit Augen-Knopf zum Anzeigen
+function passwordField(id, name, autocomplete, value) {
+  return `
+    <div class="pw-wrap">
+      <input id="${id}" name="${name}" type="password" autocomplete="${autocomplete}" value="${esc(value)}">
+      <button type="button" class="pw-toggle" data-pw-toggle="${id}" aria-label="Passwort anzeigen" aria-pressed="false">${ICON_EYE}</button>
+    </div>`;
 }
 
 function authBrand() {

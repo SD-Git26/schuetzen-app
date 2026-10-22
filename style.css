@@ -162,6 +162,37 @@ body.logged-out #toast { bottom: 24px; }
 .segmented button:hover { color: var(--text); }
 .segmented button.active { color: var(--text); border-bottom-color: var(--accent); }
 
+/* Passwortfeld mit Auge zum Anzeigen */
+.pw-wrap { position: relative; }
+.pw-wrap input { padding-right: 52px; }
+.pw-wrap input::-ms-reveal { display: none; } /* eigenes Auge des Edge-Browsers ausblenden */
+
+.pw-toggle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.pw-toggle:hover, .pw-toggle[aria-pressed="true"] { color: var(--text); }
+
+.pw-toggle svg {
+  width: 22px; height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 .btn:disabled { opacity: .6; cursor: default; }
 a.btn { text-decoration: none; }
 
