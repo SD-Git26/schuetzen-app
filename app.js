@@ -54,6 +54,11 @@ function normalizeState(s) {
     s.defaultDisciplineId = DEFAULT_DISC_ID;
   }
   delete s.lastDisciplineId;
+  // Nicht selbst angepasste Disziplinen der DSB-Liste folgen immer dem aktuellen Stand der Liste
+  s.disciplines.forEach(d => {
+    const c = !d.adjusted && catalogDisc(d.id);
+    if (c) Object.assign(d, { name: c.name, series: c.series, shots: c.shots, decimal: c.decimal, hits: c.hits });
+  });
   if (!Array.isArray(s.competitionTypes)) {
     s.competitionTypes = DEFAULT_COMPETITION_TYPES.map(name => ({ id: uid(), name }));
   }
@@ -356,7 +361,7 @@ function isCatalogId(id) {
 // kommt sie erst beim ersten Ergebnis oder wenn Serien/Wertung angepasst werden.
 function catalogDisc(id) {
   const c = DISCIPLINE_CATALOG.find(x => x.id === id);
-  return c ? { id: c.id, name: c.name, series: 3, shots: 10, decimal: c.decimal, updatedAt: 0 } : null;
+  return c ? { id: c.id, name: c.name, series: c.series, shots: c.shots, decimal: c.decimal, hits: c.hits, updatedAt: 0 } : null;
 }
 
 // Fügt eine Disziplin aus der Liste den eigenen Daten hinzu (falls noch nicht geschehen)
@@ -372,7 +377,8 @@ function sortedDisciplines() {
   return state.disciplines.slice().sort((a, b) => a.name.localeCompare(b.name, 'de', { numeric: true }));
 }
 
-function shotMax(d) { return d.decimal ? 10.9 : 10; }
+function shotMax(d) { return d.hits ? 1 : d.decimal ? 10.9 : 10; }
+function scoringLabel(d) { return d.hits ? 'Treffer' : d.decimal ? 'Zehntelwertung' : 'Ganze Ringe'; }
 function seriesMax(d) { return round1(d.shots * shotMax(d)); }
 function totalMax(d) { return round1(d.series * seriesMax(d)); }
 
@@ -585,7 +591,7 @@ function renderEntry() {
         </div>
       </div>
       <div class="disc-info">
-        <p class="hint">${d.series} × ${d.shots} Schuss · ${d.decimal ? 'Zehntelwertung' : 'Ganze Ringe'} · max. ${fmtScore(totalMax(d), d)}</p>
+        <p class="hint">${d.series} × ${d.shots} Schuss · ${scoringLabel(d)} · max. ${fmtScore(totalMax(d), d)}</p>
         ${ui.adjustDisc ? '' : '<button type="button" class="link-btn" id="adjust-disc">Anpassen</button>'}
       </div>
       ${ui.adjustDisc ? `<div class="adjust-box">${discEditForm(d, true)}</div>` : ''}
@@ -702,18 +708,38 @@ function renderEntry() {
     return el.value;
   }
 
+  // Eingabe ist fertig, wenn sie gültig ist und jede weitere Ziffer das Maximum überschreiten würde
+  // (z. B. bei max. 109,0: "98,5" ist fertig, "10,5" könnte noch zu "105,x" werden)
+  function isComplete(value, max) {
+    const digits = value.replace(/\D/g, '');
+    if (!digits || scoreError(parseNum(value), max, d)) return false;
+    return parseNum(d.decimal ? autoComma(digits + '0') : digits + '0') > max;
+  }
+
   if (dr.totalOnly) {
     const totalEl = document.getElementById('total');
-    totalEl.oninput = () => { dr.total = readInput(totalEl); validate(false); };
+    totalEl.oninput = () => {
+      dr.total = readInput(totalEl);
+      validate(false);
+      if (isComplete(totalEl.value, totalMax(d))) totalEl.blur();
+    };
+    totalEl.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); totalEl.blur(); } };
     totalEl.onblur = () => { dr.total = totalEl.value = formatInput(totalEl.value, totalMax(d), d); validate(false); };
   } else {
     view.querySelectorAll('[data-series]').forEach(el => {
-      el.oninput = () => { dr.series[+el.dataset.series] = readInput(el); validate(false); };
+      const isLast = +el.dataset.series === dr.series.length - 1;
+      el.oninput = () => {
+        dr.series[+el.dataset.series] = readInput(el);
+        validate(false);
+        // Letzte Serie fertig: Tastatur schließen
+        if (isLast && isComplete(el.value, seriesMax(d))) el.blur();
+      };
       el.onblur = () => { dr.series[+el.dataset.series] = el.value = formatInput(el.value, seriesMax(d), d); validate(false); };
       el.onkeydown = e => {
         if (e.key === 'Enter') {
           const next = document.getElementById('s' + (+el.dataset.series + 1));
-          if (next) { e.preventDefault(); next.focus(); }
+          e.preventDefault();
+          if (next) next.focus(); else el.blur();
         }
       };
     });
@@ -779,7 +805,7 @@ function discChoices() {
     code: c.code,
     title: c.title,
     name: c.name,
-    meta: [c.distance, c.caliber, c.source === 'RSB' ? 'RSB Liste B' : ''].filter(Boolean).join(' · '),
+    meta: [c.distance, c.caliber, `${c.series * c.shots} ${c.hits && !c.code.startsWith('8.') ? 'Scheiben' : 'Schuss'}`, c.source === 'RSB' ? 'RSB Liste B' : ''].filter(Boolean).join(' · '),
     group: c.group,
   }));
   return own.concat(catalog);
@@ -1290,8 +1316,9 @@ function discEditForm(d, fixedName) {
       <div class="field">
         <label for="de-decimal">Wertung</label>
         <select id="de-decimal">
-          <option value="0" ${!d.decimal ? 'selected' : ''}>Ganze Ringe (max. 10)</option>
+          <option value="0" ${!d.decimal && !d.hits ? 'selected' : ''}>Ganze Ringe (max. 10)</option>
           <option value="1" ${d.decimal ? 'selected' : ''}>Zehntel (max. 10,9)</option>
+          <option value="hits" ${d.hits ? 'selected' : ''}>Treffer (max. 1)</option>
         </select>
       </div>
       <label class="switch">
@@ -1316,6 +1343,7 @@ function bindDiscForm(id, onClose) {
     const series = Number(document.getElementById('de-series').value);
     const shots = Number(document.getElementById('de-shots').value);
     const decimal = document.getElementById('de-decimal').value === '1';
+    const hits = document.getElementById('de-decimal').value === 'hits';
     const makeDefault = document.getElementById('de-default').checked;
     const err = document.getElementById('de-error');
     const fail = m => { err.hidden = false; err.textContent = m; };
@@ -1330,12 +1358,13 @@ function bindDiscForm(id, onClose) {
     let d;
     if (id === 'new') {
       d = newDiscipline(name, decimal);
-      Object.assign(d, { series, shots });
+      Object.assign(d, { series, shots, hits });
       state.disciplines.push(d);
       toast('Disziplin hinzugefügt');
     } else {
       d = adoptDisc(discById(id));
-      touch(Object.assign(d, { series, shots, decimal }, nameEl ? { name } : {}));
+      // adjusted: eigene Einstellung behalten, statt den Standard aus der DSB-Liste zu übernehmen
+      touch(Object.assign(d, { series, shots, decimal, hits }, nameEl ? { name } : { adjusted: true }));
       toast('Disziplin gespeichert');
     }
     if (makeDefault) {
@@ -1358,7 +1387,7 @@ function renderOptions() {
       <div class="disc-item">
         <div>
           <div class="disc-name">${esc(d.name)}${d.id === state.defaultDisciplineId ? ' <span class="badge">Standard</span>' : ''}</div>
-          <div class="disc-meta">${d.series} × ${d.shots} Schuss · ${d.decimal ? 'Zehntel' : 'Ganze Ringe'}</div>
+          <div class="disc-meta">${d.series} × ${d.shots} Schuss · ${scoringLabel(d)}</div>
           <div class="disc-meta">${count} ${count === 1 ? 'Ergebnis' : 'Ergebnisse'}</div>
         </div>
         <div class="disc-buttons">

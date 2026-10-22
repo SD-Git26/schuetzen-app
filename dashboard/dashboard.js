@@ -382,7 +382,7 @@ function render() {
 
 function filterBar({ showKind = true } = {}) {
   const discOpts = dash.disciplines.map(d =>
-    `<option value="${esc(d.key)}" ${d.key === dash.disc ? 'selected' : ''}>${esc(d.name)} (${d.count})</option>`).join('');
+    `<option value="${esc(d.key)}" ${d.key === dash.disc ? 'selected' : ''}>${esc(d.name)}</option>`).join('');
   // Zeitraum und Art als zwei getrennte Schaltergruppen
   return `
     <div class="dash-filters">
