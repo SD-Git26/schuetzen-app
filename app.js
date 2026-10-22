@@ -856,9 +856,9 @@ function renderAnalysis() {
   const discOpts = state.disciplines.map(x =>
     `<option value="${x.id}" ${x.id === d.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('');
   const chips = PERIODS.map(([key, label]) =>
-    `<button class="chip ${ui.period === key ? 'active' : ''}" data-period="${key}">${label}</button>`).join('');
+    `<button type="button" class="${ui.period === key ? 'active' : ''}" data-period="${key}" aria-pressed="${ui.period === key}">${label}</button>`).join('');
   const kindChips = KINDS.map(([key, label]) =>
-    `<button class="chip ${ui.kind === key ? 'active' : ''}" data-kind="${key}">${label}</button>`).join('');
+    `<button type="button" class="${ui.kind === key ? 'active' : ''}" data-kind="${key}" aria-pressed="${ui.kind === key}">${label}</button>`).join('');
 
   let content;
   if (list.length === 0) {
@@ -903,8 +903,8 @@ function renderAnalysis() {
   view.innerHTML = `
     <div class="analysis">
       <div class="field"><select id="ana-disc" aria-label="Disziplin">${discOpts}</select></div>
-      <div class="chips">${chips}</div>
-      <div class="chips">${kindChips}</div>
+      <div class="seg" role="group" aria-label="Zeitraum">${chips}</div>
+      <div class="seg seg-kind" role="group" aria-label="Art">${kindChips}</div>
       ${content}
     </div>`;
 

@@ -93,35 +93,16 @@
   margin-bottom: 24px;
 }
 
-.dash-filters select { width: auto; min-width: 220px; }
+/* Alle Elemente der Filterzeile gleich hoch */
+.dash-filters { --filter-h: 44px; }
+.dash-filters select { width: auto; min-width: 220px; height: var(--filter-h); min-height: 0; padding-top: 0; padding-bottom: 0; }
+.dash-filters .seg { height: var(--filter-h); }
+.dash-filters .seg button { padding-top: 0; padding-bottom: 0; }
 .dash-filters .spacer { flex: 1; }
 .dash-meta { font-size: 13px; color: var(--text-muted); }
 
-/* Schaltergruppen (Zeitraum / Art): jede Gruppe in einem eigenen Rahmen */
-.seg {
-  display: flex;
-  gap: 2px;
-  padding: 3px;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-}
-
-.seg button {
-  padding: 7px 12px;
-  border: 0;
-  border-radius: 7px;
-  background: none;
-  color: var(--text-muted);
-  font: inherit;
-  font-size: 14px;
-  font-weight: 600;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.seg button:hover { color: var(--text); }
-.seg button.active { background: var(--accent); color: var(--accent-text); }
+/* Schaltergruppen (.seg) kommen aus ../style.css – am PC nebeneinander mit natürlicher Breite */
+.dash-filters .seg button { flex: none; padding-left: 12px; padding-right: 12px; font-size: 14px; }
 .seg .l-short { display: none; }
 
 /* Am PC: senkrechter Trennstrich zwischen Zeitraum und Art */
@@ -138,7 +119,13 @@
 
 .dash .card { margin-bottom: 20px; }
 .dash .tiles { grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 20px; }
-.head-actions { margin: 0; }
+.foot-actions { justify-content: flex-end; margin-top: 20px; }
+.foot-actions .btn { flex: none; }
+
+/* Dezente Zeile „Wird automatisch aktualisiert“ am Seitenende */
+.dash-refresh { margin: 8px 0 0; text-align: center; font-size: 13px; color: var(--text-muted); }
+.dash-refresh .link-subtle { margin: 0; padding: 0; border: 0; background: none; font: inherit; cursor: pointer; }
+.dash .info-pop b { color: var(--text); }
 .tile .value.small { font-size: 20px; }
 
 /* Tabellen */
@@ -292,20 +279,17 @@ td input[type="checkbox"] { width: 18px; height: 18px; min-height: 0; padding: 0
   .dash-filters { flex-direction: column; align-items: stretch; gap: 12px; margin-bottom: 24px; }
   .dash-filters select { width: 100%; min-width: 0; }
   .dash-filters .spacer { display: none; }
-  .seg button { flex: 1; min-width: 0; padding: 8px 4px; font-size: 13px; }
+  .dash-filters .seg button { flex: 1; padding-left: 4px; padding-right: 4px; font-size: 13px; }
   .seg-period .l-long { display: none; }
   .seg-period .l-short { display: inline; }
   .seg-kind { margin-left: 0; margin-top: 4px; }
   .seg-kind::before { display: none; }
-  #reload { align-self: flex-start; }
 
   .dash .tiles { gap: 12px; margin-bottom: 20px; }
   .dash .card { margin-bottom: 20px; }
   .tile .value { font-size: 22px; }
 
-  .card-head { flex-wrap: wrap; }
-  .head-actions { width: 100%; margin: 4px 0 20px; }
-  .head-actions .btn { flex: 1; }
+  .foot-actions .btn { flex: 1; }
 
   .legend select { width: 100% !important; }
   .dash .card.narrow { max-width: none; }

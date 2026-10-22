@@ -217,27 +217,57 @@ function renderNoAccess() {
 
 // ---------- Daten laden ----------
 
-async function loadAll(userId) {
-  app.innerHTML = '<div class="card empty">Daten werden geladen …</div>';
+// silent: Hintergrund-Aktualisierung ohne Ladeanzeige; neu gezeichnet wird nur, wenn sich etwas geändert hat
+async function loadAll(userId, { silent = false } = {}) {
+  if (!silent) app.innerHTML = '<div class="card empty">Daten werden geladen …</div>';
   const db = Cloud.client;
-  dash.me = await Cloud.getProfile(userId);
-  if (!dash.me) throw new Error('Profil nicht gefunden');
-  renderHeader();
+  const me = await Cloud.getProfile(userId);
+  if (!me) throw new Error('Profil nicht gefunden');
+  const roleChanged = !dash.me || dash.me.is_admin !== me.is_admin;
+  dash.me = me;
+  if (!silent || roleChanged) renderHeader();
   if (!dash.me.is_admin) { renderNoAccess(); return; }
 
   const [profiles, states, club] = await Promise.all([
     db.from('profiles').select('*').order('display_name'),
-    db.from('user_state').select('user_id, state'),
+    db.from('user_state').select('user_id, state, updated_at'),
     db.from('club_settings').select('club_name').eq('id', 1).maybeSingle(),
   ]);
   for (const r of [profiles, states, club]) if (r.error) throw r.error;
 
+  const sig = JSON.stringify([profiles.data, states.data.map(s => [s.user_id, s.updated_at]), club.data]);
+  dash.loadedAt = new Date();
+  if (silent && sig === dash.sig) return;
+  dash.sig = sig;
   dash.clubName = club.data ? club.data.club_name : '';
   buildData(profiles.data, states.data);
-  dash.loadedAt = new Date();
   renderHeader();
   render();
 }
+
+// Aktualisieren ohne Flackern; manuell mit kurzer Bestätigung
+let refreshing = false;
+async function refresh(manual) {
+  if (refreshing || !dash.me) return;
+  refreshing = true;
+  try {
+    await loadAll(dash.me.id, { silent: true });
+    if (manual) toast('Daten sind aktuell');
+  } catch (e) {
+    if (manual) toast(Cloud.errorText(e));
+  } finally {
+    refreshing = false;
+  }
+}
+
+// Automatisch abgleichen: jede Minute, solange die Seite sichtbar ist, und beim Zurückkehren zur Seite.
+// Nicht, während ein Dialog offen ist oder jemand im Bereich „Verein“ gerade Eingaben macht.
+function autoRefreshAllowed() {
+  return dash.me && dash.me.is_admin && document.visibilityState === 'visible'
+    && !document.querySelector('dialog[open]') && dash.view !== 'club';
+}
+setInterval(() => { if (autoRefreshAllowed()) refresh(false); }, 60000);
+document.addEventListener('visibilitychange', () => { if (autoRefreshAllowed()) refresh(false); });
 
 // Ergebnisse aller Mitglieder zusammenführen. Disziplinen werden über den Namen zugeordnet,
 // weil jedes Mitglied seine Disziplinen selbst verwaltet.
@@ -361,8 +391,6 @@ function filterBar({ showKind = true } = {}) {
         `<button type="button" class="${dash.period === k ? 'active' : ''}" data-period="${k}" aria-pressed="${dash.period === k}" title="${l}"><span class="l-long">${l}</span><span class="l-short">${short}</span></button>`).join('')}</div>
       ${showKind ? `<div class="seg seg-kind" role="group" aria-label="Art">${KINDS.map(([k, l]) =>
         `<button type="button" class="${dash.kind === k ? 'active' : ''}" data-kind="${k}" aria-pressed="${dash.kind === k}">${l}</button>`).join('')}</div>` : ''}
-      <span class="spacer"></span>
-      <button class="btn small" id="reload">Aktualisieren</button>
     </div>`;
 }
 
@@ -372,7 +400,26 @@ function bindFilterBar() {
   app.querySelectorAll('[data-period]').forEach(b => b.onclick = () => { dash.period = b.dataset.period; render(); });
   app.querySelectorAll('[data-kind]').forEach(b => b.onclick = () => { dash.kind = b.dataset.kind; render(); });
   const reload = document.getElementById('reload');
-  if (reload) reload.onclick = () => loadAll(dash.me.id).catch(e => toast(Cloud.errorText(e)));
+  if (reload) reload.onclick = () => refresh(true);
+}
+
+// Dezenter Hinweis am Seitenende; die Daten werden ohnehin automatisch aktualisiert
+function refreshLine() {
+  return `<p class="dash-refresh">Wird automatisch aktualisiert · <button type="button" class="link-subtle" id="reload">Jetzt aktualisieren</button></p>`;
+}
+
+// Kartenüberschrift mit Info-Icon; die Erklärung erscheint bei Hover oder Klick
+function cardHead(title, explanation) {
+  return `
+    <div class="card-head">
+      <h2>${title}</h2>
+      <div class="info">
+        <button type="button" class="info-btn" aria-label="Erklärung">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><path d="M12 11v6"/><circle cx="12" cy="7.5" r="0.6" fill="currentColor"/></svg>
+        </button>
+        <div class="info-pop" role="tooltip">${explanation}</div>
+      </div>
+    </div>`;
 }
 
 function noData() {
@@ -455,22 +502,21 @@ function renderRanking() {
     ${filterBar()}
     ${tiles}
     <div class="card">
-      <div class="card-head">
-        <h2>Rangliste ${esc(discOf().name)}</h2>
-        <div class="actions head-actions">
-          <button class="btn small" id="go-compare" ${dash.compare.length ? '' : 'disabled'}>Auswahl vergleichen (${dash.compare.length})</button>
-          <button class="btn small" id="csv">CSV exportieren</button>
-        </div>
-      </div>
+      ${cardHead(`Rangliste ${esc(discOf().name)}`, `<b>Trend</b> = Ø der letzten ${TREND_WINDOW} Ergebnisse minus Gesamtdurchschnitt im Zeitraum
+        (ab ${TREND_WINDOW + 1} Einträgen).<br><br>Häkchen setzen, um Schützen unter „Vergleich“ gegenüberzustellen.`)}
       ${rows.length ? `
-      <p class="hint" style="margin:-4px 0 10px">Trend = Ø der letzten ${TREND_WINDOW} Ergebnisse minus Gesamtdurchschnitt im Zeitraum (ab ${TREND_WINDOW + 1} Einträgen). Häkchen setzen, um Schützen im Vergleich gegenüberzustellen.</p>
       <div class="table-wrap">
         <table class="data">
           <thead><tr><th><span class="sr-only">Vergleich</span></th><th class="num">Platz</th>${head}</tr></thead>
           <tbody>${body}</tbody>
         </table>
       </div>` : '<p class="hint">Keine Ergebnisse für diese Auswahl.</p>'}
-    </div>`;
+      <div class="actions foot-actions">
+        <button class="btn small" id="go-compare" ${dash.compare.length ? '' : 'disabled'}>Auswahl vergleichen (${dash.compare.length})</button>
+        <button class="btn small" id="csv" ${rows.length ? '' : 'disabled'}>CSV exportieren</button>
+      </div>
+    </div>
+    ${refreshLine()}`;
 
   bindFilterBar();
   app.querySelectorAll('[data-sort]').forEach(b => b.onclick = () => {
@@ -549,7 +595,8 @@ function renderCompare() {
           <tbody>${tableRows}</tbody>
         </table>
       </div>
-    </div>` : ''}`;
+    </div>` : ''}
+    ${refreshLine()}`;
 
   bindFilterBar();
   app.querySelectorAll('[data-remove]').forEach(b => b.onclick = () => {

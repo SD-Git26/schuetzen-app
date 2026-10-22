@@ -474,6 +474,35 @@ select { --picker-bg: var(--surface-2); --option-hover: var(--surface); }
 
 .chip.active { background: var(--accent); border-color: var(--accent); color: var(--accent-text); font-weight: 600; }
 
+/* Schaltergruppe (Zeitraum / Art): jede Gruppe in einem eigenen Rahmen, alles in einer Reihe.
+   Wird auch vom Dashboard genutzt. */
+.seg {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.seg button {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 4px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.seg button:hover { color: var(--text); }
+.seg button.active { background: var(--accent); color: var(--accent-text); }
+
 /* Verlauf */
 .result-item {
   display: flex;
@@ -521,8 +550,8 @@ select { --picker-bg: var(--surface-2); --option-hover: var(--surface); }
 
 /* Mehr Luft zwischen den Blöcken der Analyse */
 .analysis .field { margin-bottom: 18px; }
-.analysis .chips { margin-bottom: 14px; }
-.analysis .chips + .chips { margin-bottom: 22px; }
+.analysis .seg { margin-bottom: 16px; }
+.analysis .seg + .seg { margin-bottom: 24px; }
 .analysis .tiles { gap: 12px; margin-bottom: 22px; }
 .analysis .card { margin-bottom: 22px; }
 
