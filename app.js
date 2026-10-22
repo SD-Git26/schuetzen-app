@@ -213,24 +213,13 @@ function scheduleSync(delay = 800) {
   sync.timer = setTimeout(syncNow, delay);
 }
 
-const SYNC_LABELS = {
-  syncing: 'Speichert …',
-  ok: 'In der Cloud',
-  offline: 'Offline',
-  error: 'Nicht hochgeladen',
-  auth: 'Neu anmelden',
-};
-
+// Der Abgleich läuft unsichtbar im Hintergrund. Oben rechts erscheint nur dann ein Hinweis,
+// wenn die Anmeldung abgelaufen ist – sonst würden Änderungen nie hochgeladen.
 function setSyncStatus(status) {
   sync.status = status;
   const el = document.getElementById('sync-status');
-  el.hidden = !account || status === 'idle';
+  el.hidden = !account || status !== 'auth';
   el.dataset.status = status;
-  el.textContent = SYNC_LABELS[status] || '';
-  el.title = status === 'ok' && sync.lastSync
-    ? `Zuletzt abgeglichen ${sync.lastSync.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}`
-    : status === 'offline' ? 'Änderungen werden hochgeladen, sobald wieder Internet da ist'
-      : status === 'error' ? 'Tippen zum erneuten Versuch' : '';
   const box = document.getElementById('sync-detail');
   if (box) box.innerHTML = syncDetailText();
   if (status === 'auth' && ui.tab === 'options') refreshAfterSync(); // Knopf „Neu anmelden“ zeigen
@@ -319,9 +308,14 @@ document.addEventListener('visibilitychange', () => {
   // Beim Zurückkehren in die App Änderungen von anderen Geräten holen
   if (document.visibilityState === 'visible' && account) scheduleSync(0);
 });
+// Sicherheitsnetz: Handys melden die Rückkehr ins Netz nicht immer zuverlässig.
+// Solange noch etwas hochzuladen ist, regelmäßig erneut versuchen.
+setInterval(() => {
+  if (account && isDirty() && !sync.running && sync.status !== 'auth' && navigator.onLine
+    && document.visibilityState === 'visible') syncNow();
+}, 20000);
 document.getElementById('sync-status').addEventListener('click', () => {
-  if (sync.status === 'auth') { setTab('options'); return; }
-  syncNow();
+  endSession('Bitte melde dich erneut an.', true);
 });
 
 // ---------- Design (hell/dunkel) ----------
@@ -907,10 +901,12 @@ function renderAnalysis() {
   }
 
   view.innerHTML = `
-    <div class="field"><select id="ana-disc" aria-label="Disziplin">${discOpts}</select></div>
-    <div class="chips">${chips}</div>
-    <div class="chips">${kindChips}</div>
-    ${content}`;
+    <div class="analysis">
+      <div class="field"><select id="ana-disc" aria-label="Disziplin">${discOpts}</select></div>
+      <div class="chips">${chips}</div>
+      <div class="chips">${kindChips}</div>
+      ${content}
+    </div>`;
 
   view.querySelectorAll('[data-kind]').forEach(b => b.onclick = () => { ui.kind = b.dataset.kind; ui.selectedPoint = null; render(); });
 
@@ -1183,23 +1179,6 @@ function renderOptions() {
 
   view.innerHTML = `
     <div class="card">
-      <h2>Konto</h2>
-      <div class="account-row">
-        <div class="avatar" aria-hidden="true">${esc((account.displayName || account.username).slice(0, 1).toUpperCase())}</div>
-        <div class="account-name">
-          <div class="disc-name">${esc(account.displayName || account.username)}${account.isAdmin ? ' <span class="badge">Admin</span>' : ''}</div>
-          <div class="disc-meta">@${esc(account.username)}</div>
-        </div>
-      </div>
-      <p class="hint" id="sync-detail">${syncDetailText()}</p>
-      <div class="actions">
-        <button class="btn" id="sync-now">Abgleichen</button>
-        <button class="btn ${sync.status === 'auth' ? 'primary' : ''}" id="logout">${sync.status === 'auth' ? 'Neu anmelden' : 'Abmelden'}</button>
-      </div>
-      ${account.isAdmin ? `<div class="actions" style="margin-top:10px"><a class="btn primary" href="dashboard/" target="_blank" rel="noopener">Vereins-Dashboard öffnen</a></div>` : ''}
-    </div>
-
-    <div class="card">
       <h2>Allgemein</h2>
       <div class="option-row">
         <span class="label" style="margin:0">Design</span>
@@ -1236,6 +1215,22 @@ function renderOptions() {
       </div>
       <input type="file" id="import-file" accept="application/json,.json" hidden>`)}
 
+    <div class="card">
+      <h2>Konto</h2>
+      <div class="account-row">
+        <div class="avatar" aria-hidden="true">${esc((account.displayName || account.username).slice(0, 1).toUpperCase())}</div>
+        <div class="account-name">
+          <div class="disc-name">${esc(account.displayName || account.username)}${account.isAdmin ? ' <span class="badge">Admin</span>' : ''}</div>
+          <div class="disc-meta">@${esc(account.username)}</div>
+        </div>
+      </div>
+      <p class="hint" id="sync-detail">${syncDetailText()}</p>
+      <div class="actions">
+        <button class="btn ${sync.status === 'auth' ? 'primary' : ''}" id="logout">${sync.status === 'auth' ? 'Neu anmelden' : 'Abmelden'}</button>
+      </div>
+      ${account.isAdmin ? `<a class="link-subtle" href="dashboard/" target="_blank" rel="noopener">Vereins-Dashboard öffnen ↗</a>` : ''}
+    </div>
+
     <p class="hint" style="text-align:center">${state.results.length} Ergebnisse · ${state.disciplines.length} Disziplinen</p>`;
 
   view.querySelectorAll('[data-section]').forEach(b => b.onclick = () => {
@@ -1257,10 +1252,6 @@ function renderOptions() {
 
   bindCompTypes();
 
-  document.getElementById('sync-now').onclick = () => {
-    if (!navigator.onLine) { toast('Kein Internet – später erneut versuchen'); return; }
-    syncNow();
-  };
   document.getElementById('logout').onclick = () => {
     // Abgelaufene Anmeldung: neu anmelden, ohne die Daten auf dem Gerät zu verlieren
     if (sync.status === 'auth') endSession('Bitte melde dich erneut an.', true);

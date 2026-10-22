@@ -5,7 +5,8 @@
 const TREND_WINDOW = 5;
 const MAX_COMPARE = 6;
 
-const PERIODS = [['3m', '3 Monate', 3], ['6m', '6 Monate', 6], ['1y', '12 Monate', 12], ['year', 'Dieses Jahr', null], ['all', 'Alles', null]];
+// [Schlüssel, Beschriftung, Monate, Kurzform fürs Handy]
+const PERIODS = [['3m', '3 Monate', 3, '3 M'], ['6m', '6 Monate', 6, '6 M'], ['1y', '12 Monate', 12, '12 M'], ['year', 'Dieses Jahr', null, 'Jahr'], ['all', 'Alles', null, 'Alles']];
 const KINDS = [['all', 'Alle'], ['training', 'Training'], ['competition', 'Wettkampf']];
 
 const dash = {
@@ -132,31 +133,36 @@ function renderHeader() {
   const nav = document.getElementById('dash-nav');
   nav.hidden = !(dash.me && dash.me.is_admin);
   nav.querySelectorAll('[data-view]').forEach(b => b.classList.toggle('active', b.dataset.view === dash.view));
+  document.body.classList.toggle('has-nav', !nav.hidden);
+  // Benutzerbereich steht am PC oben rechts und am Handy am Seitenende (per CSS umgeschaltet)
   const theme = document.documentElement.dataset.theme;
-  document.getElementById('dash-user').innerHTML = dash.me ? `
-    <span>${esc(dash.me.display_name)}</span>
-    <button type="button" class="btn small" id="theme-btn" title="Hell/Dunkel umschalten">${theme === 'dark' ? 'Hell' : 'Dunkel'}</button>
-    <button type="button" class="btn small" id="logout-btn">Abmelden</button>` : '';
+  const userHtml = dash.me ? `
+    <span class="dash-user-name">${esc(dash.me.display_name)}</span>
+    <button type="button" class="btn small" data-theme-toggle title="Hell/Dunkel umschalten">${theme === 'dark' ? 'Hell' : 'Dunkel'}</button>
+    <button type="button" class="btn small" data-logout>Abmelden</button>` : '';
+  document.getElementById('dash-user').innerHTML = userHtml;
+  document.getElementById('dash-foot').innerHTML = userHtml;
   if (!dash.me) return;
-  document.getElementById('theme-btn').onclick = () => {
+  document.querySelectorAll('[data-theme-toggle]').forEach(b => b.onclick = () => {
     const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
     try { localStorage.setItem('schuetzen-theme', next); } catch (e) { /* nur für diese Sitzung */ }
     document.documentElement.dataset.theme = next;
     renderHeader();
     render();
-  };
-  document.getElementById('logout-btn').onclick = async () => {
+  });
+  document.querySelectorAll('[data-logout]').forEach(b => b.onclick = async () => {
     await Cloud.signOut();
     dash.me = null;
     renderHeader();
     renderLogin();
-  };
+  });
 }
 
 document.querySelectorAll('#dash-nav [data-view]').forEach(b => b.onclick = () => {
   dash.view = b.dataset.view;
   renderHeader();
   render();
+  window.scrollTo(0, 0);
 });
 
 // ---------- Anmeldung ----------
@@ -347,13 +353,15 @@ function render() {
 function filterBar({ showKind = true } = {}) {
   const discOpts = dash.disciplines.map(d =>
     `<option value="${esc(d.key)}" ${d.key === dash.disc ? 'selected' : ''}>${esc(d.name)} (${d.count})</option>`).join('');
+  // Zeitraum und Art als zwei getrennte Schaltergruppen
   return `
     <div class="dash-filters">
       <select id="f-disc" aria-label="Disziplin">${discOpts}</select>
-      <div class="chips">${PERIODS.map(([k, l]) => `<button class="chip ${dash.period === k ? 'active' : ''}" data-period="${k}">${l}</button>`).join('')}</div>
-      ${showKind ? `<div class="chips">${KINDS.map(([k, l]) => `<button class="chip ${dash.kind === k ? 'active' : ''}" data-kind="${k}">${l}</button>`).join('')}</div>` : ''}
+      <div class="seg seg-period" role="group" aria-label="Zeitraum">${PERIODS.map(([k, l, , short]) =>
+        `<button type="button" class="${dash.period === k ? 'active' : ''}" data-period="${k}" aria-pressed="${dash.period === k}" title="${l}"><span class="l-long">${l}</span><span class="l-short">${short}</span></button>`).join('')}</div>
+      ${showKind ? `<div class="seg seg-kind" role="group" aria-label="Art">${KINDS.map(([k, l]) =>
+        `<button type="button" class="${dash.kind === k ? 'active' : ''}" data-kind="${k}" aria-pressed="${dash.kind === k}">${l}</button>`).join('')}</div>` : ''}
       <span class="spacer"></span>
-      <span class="dash-meta">Stand ${dash.loadedAt.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>
       <button class="btn small" id="reload">Aktualisieren</button>
     </div>`;
 }
@@ -449,7 +457,7 @@ function renderRanking() {
     <div class="card">
       <div class="card-head">
         <h2>Rangliste ${esc(discOf().name)}</h2>
-        <div class="actions" style="margin:0">
+        <div class="actions head-actions">
           <button class="btn small" id="go-compare" ${dash.compare.length ? '' : 'disabled'}>Auswahl vergleichen (${dash.compare.length})</button>
           <button class="btn small" id="csv">CSV exportieren</button>
         </div>
@@ -565,9 +573,9 @@ function clubMonthly() {
 }
 
 function drawCompareChart(container, series) {
-  const W = Math.max(600, container.clientWidth);
-  const H = 380;
-  const directLabels = series.length <= 4;
+  const W = Math.max(300, container.clientWidth);
+  const H = W < 600 ? 280 : 380;
+  const directLabels = series.length <= 4 && W >= 600;
   const pad = { l: 48, r: directLabels ? 130 : 16, t: 12, b: 28 };
   const iw = W - pad.l - pad.r;
   const ih = H - pad.t - pad.b;
@@ -651,7 +659,8 @@ function drawCompareChart(container, series) {
   const cursor = document.getElementById('cmp-cursor');
   const circles = svg.querySelectorAll('[data-pt]');
 
-  svg.addEventListener('pointermove', e => {
+  // pointerdown zusätzlich, damit am Handy schon ein Antippen den Wert zeigt
+  const showNearest = e => {
     const rect = svg.getBoundingClientRect();
     const mx = ((e.clientX - rect.left) / rect.width) * W;
     const my = ((e.clientY - rect.top) / rect.height) * H;
@@ -680,7 +689,9 @@ function drawCompareChart(container, series) {
     if (left + tip.offsetWidth > rect.width) left = best.px * scale - tip.offsetWidth - 14;
     tip.style.left = left + 'px';
     tip.style.top = Math.max(0, best.py * scale - tip.offsetHeight / 2) + 'px';
-  });
+  };
+  svg.addEventListener('pointermove', showNearest);
+  svg.addEventListener('pointerdown', showNearest);
   svg.addEventListener('pointerleave', () => {
     tip.hidden = true;
     cursor.setAttribute('visibility', 'hidden');

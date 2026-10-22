@@ -83,7 +83,7 @@ body {
 
 .topbar h1 { margin: 0; font-size: 24px; font-weight: 700; }
 
-/* Speicherstatus oben rechts */
+/* Hinweis oben rechts – erscheint nur, wenn die Anmeldung abgelaufen ist */
 .sync-status {
   display: inline-flex;
   align-items: center;
@@ -158,6 +158,18 @@ a.btn { text-decoration: none; }
 
 /* Konto in den Optionen */
 .account-row { display: flex; align-items: center; gap: 12px; }
+
+/* Dezenter Link, z. B. zum Vereins-Dashboard */
+.link-subtle {
+  display: inline-block;
+  margin-top: 14px;
+  font-size: 14px;
+  color: var(--text-muted);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.link-subtle:hover { color: var(--accent); }
 .account-name { min-width: 0; }
 
 .avatar {
@@ -506,6 +518,13 @@ select { --picker-bg: var(--surface-2); --option-hover: var(--surface); }
 .tile .sub { font-size: 12px; color: var(--text-muted); }
 .tile .sub.pos { color: var(--positive); }
 .tile .sub.neg { color: var(--negative); }
+
+/* Mehr Luft zwischen den Blöcken der Analyse */
+.analysis .field { margin-bottom: 18px; }
+.analysis .chips { margin-bottom: 14px; }
+.analysis .chips + .chips { margin-bottom: 22px; }
+.analysis .tiles { gap: 12px; margin-bottom: 22px; }
+.analysis .card { margin-bottom: 22px; }
 
 /* Kartenkopf mit Info-Icon */
 .card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
