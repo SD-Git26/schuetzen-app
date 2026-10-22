@@ -3,7 +3,7 @@
 // Disziplinen nach DSB-Sportordnung (Anhang 0.21) und RSB-Liste B (Landesdisziplinen Rheinland).
 // Bogen, Blasrohr und Lichtschießen sind weggelassen.
 // Aufbau: [Kennzahl, Name, Distanz, Kaliber/Gerät, Schussprogramm, Quelle (ohne Angabe = DSB)]
-// Schussprogramm = Serien × Schuss pro Serie der Hauptklasse ohne Probeschüsse;
+// Schussprogramm = Serien × Schuss pro Serie der Wettkampfklasse Herren I ohne Probeschüsse;
 // „T“ = Trefferwertung (1 pro Schuss) statt Ringen.
 
 const DISCIPLINE_GROUPS = {

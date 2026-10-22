@@ -65,6 +65,7 @@ function normalizeState(s) {
   // Gelöschte IDs mit Zeitpunkt, damit das Löschen auch auf anderen Geräten ankommt
   if (!s.deleted || typeof s.deleted !== 'object') s.deleted = {};
   if (typeof s.settingsUpdatedAt !== 'number') s.settingsUpdatedAt = 0;
+  if (!ageClassById(s.ageClassId)) s.ageClassId = null;
   // Ältere Einträge ohne Angabe gelten als Training
   s.results.forEach(r => { if (r.type !== 'competition') { r.type = 'training'; r.competition = null; } });
   return s;
@@ -99,6 +100,7 @@ function mergeStates(a, b) {
     results: mergeList(a.results, b.results),
     deleted,
     defaultDisciplineId: newer.defaultDisciplineId,
+    ageClassId: newer.ageClassId,
     settingsUpdatedAt: newer.settingsUpdatedAt,
   });
 }
@@ -576,7 +578,7 @@ function renderEntry() {
   const seriesInputs = dr.series.map((v, i) => `
     <div>
       <label for="s${i}">Serie ${i + 1}</label>
-      <input id="s${i}" data-series="${i}" inputmode="${d.decimal ? 'numeric' : 'decimal'}" autocomplete="off" value="${esc(v)}" placeholder="${fmtScore(0, d)}">
+      <input id="s${i}" data-series="${i}" inputmode="numeric" autocomplete="off" value="${esc(v)}" placeholder="${fmtScore(0, d)}">
     </div>`).join('');
 
   view.innerHTML = `
@@ -603,7 +605,7 @@ function renderEntry() {
       ${dr.totalOnly ? `
         <div class="field">
           <label for="total">Gesamtergebnis</label>
-          <input id="total" inputmode="${d.decimal ? 'numeric' : 'decimal'}" autocomplete="off" value="${esc(dr.total)}" placeholder="${fmtScore(0, d)}" style="font-size:22px;font-weight:700">
+          <input id="total" inputmode="numeric" autocomplete="off" value="${esc(dr.total)}" placeholder="${fmtScore(0, d)}" style="font-size:22px;font-weight:700">
         </div>` : `
         <div class="series-grid" style="grid-template-columns:repeat(${d.series <= 4 ? d.series : (d.series % 4 === 0 ? 4 : 3)}, 1fr)">${seriesInputs}</div>
         <div class="sum-line"><span class="label">Gesamt</span><span class="sum" id="sum">–</span></div>`}
@@ -702,9 +704,10 @@ function renderEntry() {
     document.getElementById('comp-location').oninput = e => { dr.location = e.target.value; };
   }
 
-  // Bei Zehntelwertung setzt die App das Komma selbst: "1014" → "101,4"
+  // Eingabe nur als Ziffern. Bei Zehntelwertung setzt die App das Komma selbst ("1014" → "101,4"),
+  // bei ganzen Ringen und Treffern gibt es kein Komma.
   function readInput(el) {
-    if (d.decimal) el.value = autoComma(el.value);
+    el.value = d.decimal ? autoComma(el.value) : el.value.replace(/\D/g, '');
     return el.value;
   }
 
@@ -1430,6 +1433,20 @@ function renderOptions() {
       ${ui.editCompId === 'new' ? `<div style="margin-top:12px">${compEditForm(null)}</div>` : ''}
       ${ui.editCompId ? '' : '<div class="actions"><button class="btn primary" id="ct-add">+ Wettkampfart hinzufügen</button></div>'}`)}
 
+    ${collapsible('ageclass', 'Altersklasse', ageClassById(state.ageClassId) ? esc(ageClassById(state.ageClassId).name) : '', `
+      <div class="field">
+        <label for="age-class">Deine Altersklasse (Sportjahr 2027)</label>
+        <select id="age-class">
+          <option value="">– keine Angabe –</option>
+          ${AGE_CLASS_GROUPS.map(([group]) => `
+            <optgroup label="${esc(group)}">
+              ${AGE_CLASSES.filter(c => c.group === group).map(c =>
+                `<option value="${c.id}" ${c.id === state.ageClassId ? 'selected' : ''}>${esc(c.name)} · ${esc(c.age)} J. (${esc(c.years)})</option>`).join('')}
+            </optgroup>`).join('')}
+        </select>
+      </div>
+      <p class="hint">Maßgeblich ist das Alter, das du im Sportjahr erreichst. Im Vereins-Dashboard kann nach Altersklasse gefiltert werden.</p>`)}
+
     ${collapsible('backup', 'Datensicherung', '', `
       <p class="hint" style="margin:0 0 12px">Deine Daten werden automatisch in der Cloud gesichert und sind auf jedem Gerät verfügbar, auf dem du dich anmeldest. Zusätzlich kannst du hier eine Kopie als Datei speichern.</p>
       <div class="actions" style="margin-top:0">
@@ -1477,6 +1494,14 @@ function renderOptions() {
   });
 
   bindCompTypes();
+
+  document.getElementById('age-class').onchange = e => {
+    state.ageClassId = e.target.value || null;
+    state.settingsUpdatedAt = Date.now();
+    saveState();
+    render();
+    toast(state.ageClassId ? `Altersklasse: ${ageClassById(state.ageClassId).name}` : 'Altersklasse entfernt');
+  };
 
   document.getElementById('logout').onclick = () => {
     // Abgelaufene Anmeldung: neu anmelden, ohne die Daten auf dem Gerät zu verlieren

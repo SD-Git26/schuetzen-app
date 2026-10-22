@@ -99,6 +99,8 @@
 .dash-filters .seg { height: var(--filter-h); }
 .dash-filters .seg button { padding-top: 0; padding-bottom: 0; }
 .dash-filters .spacer { flex: 1; }
+/* Altersklasse ganz rechts in der Filterzeile */
+.dash-filters .f-age { margin-left: auto; min-width: 190px; }
 .dash-meta { font-size: 13px; color: var(--text-muted); }
 
 /* Schaltergruppen (.seg) kommen aus ../style.css – am PC nebeneinander mit natürlicher Breite */

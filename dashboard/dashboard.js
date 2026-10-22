@@ -20,6 +20,7 @@ const dash = {
   disc: null,
   period: '1y',
   kind: 'all',
+  ageClass: 'all',   // Filter nach Altersklasse der Mitglieder (aus den Optionen der App)
   sort: { key: 'avg', dir: -1 },
   compare: [],       // ausgewählte Mitglieder-IDs für den Vergleich (Reihenfolge = Farbe)
   compareInit: false,
@@ -282,6 +283,7 @@ function buildData(profiles, states) {
     displayName: p.display_name,
     isAdmin: p.is_admin,
     createdAt: p.created_at,
+    ageClassId: (stateOf[p.id] && ageClassById(stateOf[p.id].ageClassId)) ? stateOf[p.id].ageClassId : null,
     total: 0,
     lastDate: null,
   }));
@@ -339,7 +341,8 @@ function filteredResults() {
   const start = periodStart(dash.period);
   return dash.results.filter(r => r.key === dash.disc
     && (!start || r.date >= start)
-    && (dash.kind === 'all' || r.type === dash.kind));
+    && (dash.kind === 'all' || r.type === dash.kind)
+    && (dash.ageClass === 'all' || memberById(r.memberId).ageClassId === dash.ageClass));
 }
 
 function statsOf(list) {
@@ -391,12 +394,22 @@ function filterBar({ showKind = true } = {}) {
         `<button type="button" class="${dash.period === k ? 'active' : ''}" data-period="${k}" aria-pressed="${dash.period === k}" title="${l}"><span class="l-long">${l}</span><span class="l-short">${short}</span></button>`).join('')}</div>
       ${showKind ? `<div class="seg seg-kind" role="group" aria-label="Art">${KINDS.map(([k, l]) =>
         `<button type="button" class="${dash.kind === k ? 'active' : ''}" data-kind="${k}" aria-pressed="${dash.kind === k}">${l}</button>`).join('')}</div>` : ''}
+      <select id="f-age" class="f-age" aria-label="Altersklasse">
+        <option value="all">Alle Altersklassen</option>
+        ${AGE_CLASS_GROUPS.map(([group]) => `
+          <optgroup label="${esc(group)}">
+            ${AGE_CLASSES.filter(c => c.group === group).map(c =>
+              `<option value="${c.id}" ${c.id === dash.ageClass ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}
+          </optgroup>`).join('')}
+      </select>
     </div>`;
 }
 
 function bindFilterBar() {
   const sel = document.getElementById('f-disc');
   if (sel) sel.onchange = e => { dash.disc = e.target.value; render(); };
+  const age = document.getElementById('f-age');
+  if (age) age.onchange = e => { dash.ageClass = e.target.value; render(); };
   app.querySelectorAll('[data-period]').forEach(b => b.onclick = () => { dash.period = b.dataset.period; render(); });
   app.querySelectorAll('[data-kind]').forEach(b => b.onclick = () => { dash.kind = b.dataset.kind; render(); });
   const reload = document.getElementById('reload');
