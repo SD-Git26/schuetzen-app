@@ -495,6 +495,23 @@ select { --picker-bg: var(--field); --option-hover: var(--surface); }
   font-variant-numeric: tabular-nums;
 }
 
+/* Beim Bearbeiten: gespeichertes Ergebnis nur zum Ansehen */
+.score-fixed {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 64px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  color: var(--text-muted);
+  font-size: 24px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+input.fixed { background: none; border-style: dashed; border-color: var(--border); color: var(--text-muted); cursor: default; }
+input.fixed:focus { outline: none; }
+
 /* Aufklappbarer Wettkampf-Bereich */
 .comp-box {
   margin-top: 18px;
@@ -652,23 +669,26 @@ select { --picker-bg: var(--field); --option-hover: var(--surface); }
 .seg button:hover { color: var(--text); }
 .seg button.active { background: var(--accent); color: var(--accent-text); }
 
-/* Verlauf */
+/* Schießbuch */
 .result-item {
   display: flex;
   gap: 12px;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
 }
 
 .result-item + .result-item { border-top: 1px solid var(--border); padding-top: 12px; margin-top: 12px; }
 
 .result-main { min-width: 0; }
+.result-date { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .result-meta { font-size: 13px; color: var(--text-muted); }
 .result-comp { font-size: 13px; margin: 2px 0; overflow-wrap: anywhere; }
-.result-series { font-size: 13px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .result-note { font-size: 14px; margin-top: 4px; overflow-wrap: anywhere; }
-.result-total { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.result-buttons { display: flex; gap: 8px; margin-top: 8px; }
+/* Rechts: Bearbeiten/Löschen als kleine Icons, mit Abstand vor dem Gesamtergebnis */
+.result-side { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.result-side .icon-btn { width: 32px; height: 32px; border-radius: 8px; }
+.result-side .icon-btn svg { width: 16px; height: 16px; }
+.result-total { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; margin-left: 10px; min-width: 3.4em; text-align: right; }
 
 .month-label {
   font-size: 13px;

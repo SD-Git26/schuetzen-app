@@ -3,7 +3,7 @@
 // ---------- Vereins-Dashboard: Ergebnisse aller Mitglieder vergleichen ----------
 
 const TREND_WINDOW = 5;
-const MAX_COMPARE = 6;
+const CAT_COLORS = 6;
 
 // [Schlüssel, Beschriftung, Monate, Kurzform fürs Handy]
 const PERIODS = [['3m', '3 Monate', 3, '3 M'], ['6m', '6 Monate', 6, '6 M'], ['1y', '12 Monate', 12, '12 M'], ['year', 'Dieses Jahr', null, 'Jahr'], ['all', 'Alles', null, 'Alles']];
@@ -24,6 +24,7 @@ const dash = {
   sort: { key: 'avg', dir: -1 },
   compare: [],       // ausgewählte Mitglieder-IDs für den Vergleich (Reihenfolge = Farbe)
   compareInit: false,
+  openSections: new Set(), // aufgeklappte Bereiche unter „Optionen“; beim Öffnen der Seite alle zu
 };
 
 const app = document.getElementById('app');
@@ -131,32 +132,14 @@ function download(filename, content, type) {
 
 function renderHeader() {
   document.getElementById('club-name').textContent = dash.clubName ? `· ${dash.clubName}` : 'Vereins-Dashboard';
+  // Vereinsname merken: Vor der Anmeldung gibt die Cloud ihn nicht heraus, der Login-Bildschirm zeigt ihn trotzdem
+  if (dash.clubName) try { localStorage.setItem('hotshot-dash-club', dash.clubName); } catch (e) { /* dann nur „Dashboard“ */ }
   const nav = document.getElementById('dash-nav');
   nav.hidden = !(dash.me && dash.me.is_admin);
   nav.querySelectorAll('[data-view]').forEach(b => b.classList.toggle('active', b.dataset.view === dash.view));
   document.body.classList.toggle('has-nav', !nav.hidden);
-  // Benutzerbereich steht am PC oben rechts und am Handy am Seitenende (per CSS umgeschaltet)
-  const theme = document.documentElement.dataset.theme;
-  const userHtml = dash.me ? `
-    <span class="dash-user-name">${esc(dash.me.username)}</span>
-    <button type="button" class="btn small" data-theme-toggle title="Hell/Dunkel umschalten">${theme === 'dark' ? 'Hell' : 'Dunkel'}</button>
-    <button type="button" class="btn small" data-logout>Abmelden</button>` : '';
-  document.getElementById('dash-user').innerHTML = userHtml;
-  document.getElementById('dash-foot').innerHTML = userHtml;
-  if (!dash.me) return;
-  document.querySelectorAll('[data-theme-toggle]').forEach(b => b.onclick = () => {
-    const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
-    try { localStorage.setItem('schuetzen-theme', next); } catch (e) { /* nur für diese Sitzung */ }
-    document.documentElement.dataset.theme = next;
-    renderHeader();
-    render();
-  });
-  document.querySelectorAll('[data-logout]').forEach(b => b.onclick = async () => {
-    await Cloud.signOut();
-    dash.me = null;
-    renderHeader();
-    renderLogin();
-  });
+  // Abgemeldet: keine Kopfleiste, Logo steht mittig über dem Anmeldefeld (wie in der App)
+  document.body.classList.toggle('signed-out', !dash.me);
 }
 
 document.querySelectorAll('#dash-nav [data-view]').forEach(b => b.onclick = () => {
@@ -168,16 +151,27 @@ document.querySelectorAll('#dash-nav [data-view]').forEach(b => b.onclick = () =
 
 // ---------- Anmeldung ----------
 
+function loginBrand() {
+  let club = '';
+  try { club = localStorage.getItem('hotshot-dash-club') || ''; } catch (e) { /* unbekannt */ }
+  return `
+    <div class="auth-brand">
+      <img src="../icons/icon.svg" alt="" width="72" height="72">
+      <div class="auth-name">Hot Shot</div>
+      <div class="auth-sub">Dashboard${club ? ` – ${esc(club)}` : ''}</div>
+    </div>`;
+}
+
 function renderLogin(message) {
   if (!Cloud.configured || !Cloud.libLoaded) {
-    app.innerHTML = `<div class="dash-center card">
+    app.innerHTML = `<div class="dash-center">${loginBrand()}<div class="card">
       <h2>${Cloud.configured ? 'Keine Verbindung' : 'Cloud noch nicht eingerichtet'}</h2>
       <p class="hint">${Cloud.configured ? 'Die Supabase-Bibliothek konnte nicht geladen werden. Bitte Internetverbindung prüfen und neu laden.'
-        : 'In <code>config.js</code> fehlen die Zugangsdaten zum Supabase-Projekt (siehe README).'}</p></div>`;
+        : 'In <code>config.js</code> fehlen die Zugangsdaten zum Supabase-Projekt (siehe README).'}</p></div></div>`;
     return;
   }
-  app.innerHTML = `
-    <form class="dash-center card" id="login-form" novalidate>
+  app.innerHTML = `<div class="dash-center">${loginBrand()}
+    <form class="card" id="login-form" novalidate>
       <h2>Anmelden</h2>
       <p class="hint" style="margin:-6px 0 16px">Das Dashboard ist nur für Admins des Vereins. Melde dich mit deinem Hot-Shot-Konto an.</p>
       <div class="field">
@@ -190,7 +184,7 @@ function renderLogin(message) {
       </div>
       <div class="error" id="l-error" ${message ? '' : 'hidden'}>${esc(message || '')}</div>
       <div class="actions"><button class="btn primary" type="submit" id="l-submit">Anmelden</button></div>
-    </form>`;
+    </form></div>`;
   const form = document.getElementById('login-form');
   const errEl = document.getElementById('l-error');
   document.getElementById('l-user').focus();
@@ -262,7 +256,7 @@ async function refresh(manual) {
 }
 
 // Automatisch abgleichen: jede Minute, solange die Seite sichtbar ist, und beim Zurückkehren zur Seite.
-// Nicht, während ein Dialog offen ist oder jemand im Bereich „Verein“ gerade Eingaben macht.
+// Nicht, während ein Dialog offen ist oder jemand im Bereich „Optionen“ gerade Eingaben macht.
 function autoRefreshAllowed() {
   return dash.me && dash.me.is_admin && document.visibilityState === 'visible'
     && !document.querySelector('dialog[open]') && dash.view !== 'club';
@@ -334,7 +328,8 @@ function buildData(profiles, states) {
       count: d.count,
     }))
     .sort((a, b) => b.count - a.count);
-  if (!dash.disciplines.some(d => d.key === dash.disc)) dash.disc = dash.disciplines[0] ? dash.disciplines[0].key : null;
+  // Keine Vorauswahl: die Disziplin wählt der Admin selbst, sie bleibt bis zum Neuladen der Seite
+  if (dash.disc && !dash.disciplines.some(d => d.key === dash.disc)) dash.disc = null;
   dash.compare = dash.compare.filter(id => dash.members.some(m => m.id === id));
 }
 
@@ -376,7 +371,7 @@ function memberRows() {
 
 function colorOf(memberId) {
   const i = dash.compare.indexOf(memberId);
-  return i >= 0 ? `var(--cat-${i + 1})` : null;
+  return i >= 0 ? `var(--cat-${(i % CAT_COLORS) + 1})` : null;
 }
 
 // ---------- Darstellung ----------
@@ -387,7 +382,8 @@ function render() {
 }
 
 function filterBar({ showKind = true } = {}) {
-  const discOpts = dash.disciplines.map(d =>
+  const discOpts = (dash.disc ? '' : '<option value="" selected disabled>-- Disziplin auswählen --</option>')
+    + dash.disciplines.map(d =>
     `<option value="${esc(d.key)}" ${d.key === dash.disc ? 'selected' : ''}>${esc(d.name)}</option>`).join('');
   // Zeitraum und Art als zwei getrennte Schaltergruppen
   return `
@@ -425,17 +421,36 @@ function cardHead(title, explanation) {
   return `
     <div class="card-head">
       <h2>${title}</h2>
-      <div class="info">
-        <button type="button" class="info-btn" aria-label="Erklärung">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><path d="M12 11v6"/><circle cx="12" cy="7.5" r="0.6" fill="currentColor"/></svg>
-        </button>
-        <div class="info-pop" role="tooltip">${explanation}</div>
-      </div>
+      ${infoIcon(explanation)}
     </div>`;
+}
+
+function infoIcon(explanation) {
+  return `
+    <div class="info">
+      <button type="button" class="info-btn" aria-label="Erklärung">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><path d="M12 11v6"/><circle cx="12" cy="7.5" r="0.6" fill="currentColor"/></svg>
+      </button>
+      <div class="info-pop" role="tooltip">${explanation}</div>
+    </div>`;
+}
+
+// Kennzahl-Kachel mit Info-Icon neben der Beschriftung
+function tile(label, value, sub, explanation) {
+  return `<div class="tile"><div class="tile-head"><div class="label">${label}</div>${infoIcon(explanation)}</div><div class="value">${value}</div><div class="sub">${sub}</div></div>`;
 }
 
 function noData() {
   return '<div class="card empty">Noch keine Ergebnisse im Verein. Sobald Mitglieder in der App Ergebnisse eintragen, erscheinen sie hier.</div>';
+}
+
+// Ohne gewählte Disziplin nur die Filter und einen Hinweis zeigen; true = Ansicht ist damit fertig
+function needsDisc() {
+  if (!dash.disciplines.length) { app.innerHTML = noData(); return true; }
+  if (dash.disc) return false;
+  app.innerHTML = `${filterBar()}<div class="card empty">Bitte oben eine Disziplin auswählen.</div>`;
+  bindFilterBar();
+  return true;
 }
 
 function deltaCell(v) {
@@ -467,7 +482,7 @@ function sortValue(row, key) {
 }
 
 function renderRanking() {
-  if (!dash.disc) { app.innerHTML = noData(); return; }
+  if (needsDisc()) return;
   const rows = memberRows();
   const { key, dir } = dash.sort;
   rows.sort((a, b) => {
@@ -482,10 +497,14 @@ function renderRanking() {
     const avgOfAvgs = mean(rows.map(r => r.avg));
     tiles = `
       <div class="tiles">
-        <div class="tile"><div class="label">Aktive Schützen</div><div class="value">${rows.length}</div><div class="sub">von ${dash.members.length} Mitgliedern</div></div>
-        <div class="tile"><div class="label">Ergebnisse</div><div class="value">${all.length}</div><div class="sub">im gewählten Zeitraum</div></div>
-        <div class="tile"><div class="label">Vereinsschnitt</div><div class="value">${fmtAvg(avgOfAvgs)}</div><div class="sub">Ø der Schützen-Durchschnitte</div></div>
-        <div class="tile"><div class="label">Bestleistung</div><div class="value">${fmtScore(record.total)}</div><div class="sub">${esc(memberById(record.memberId).displayName)} · ${fmtDate(record.date)}</div></div>
+        ${tile('Aktive Schützen', rows.length, `von ${dash.members.length} Mitgliedern`,
+          'Mitglieder, die mit den gewählten Filtern mindestens ein Ergebnis haben.')}
+        ${tile('Ergebnisse', all.length, 'im gewählten Zeitraum',
+          'Anzahl aller eingetragenen Ergebnisse, die zu den gewählten Filtern passen.')}
+        ${tile('Vereinsschnitt', fmtAvg(avgOfAvgs), 'Ø der Schützen-Durchschnitte',
+          'Mittelwert der Durchschnitte aller aktiven Schützen. Jeder Schütze zählt gleich viel, egal wie viele Ergebnisse er hat.')}
+        ${tile('Bestleistung', fmtScore(record.total), `${esc(memberById(record.memberId).displayName)} · ${fmtDate(record.date)}`,
+          'Höchstes Einzelergebnis mit den gewählten Filtern, mit Schütze und Datum.')}
       </div>`;
   }
 
@@ -494,11 +513,10 @@ function renderRanking() {
 
   const body = rows.map((r, i) => {
     const checked = dash.compare.includes(r.member.id);
-    const full = !checked && dash.compare.length >= MAX_COMPARE;
     const color = colorOf(r.member.id);
     return `
       <tr>
-        <td><input type="checkbox" data-cmp="${r.member.id}" ${checked ? 'checked' : ''} ${full ? 'disabled title="Höchstens 6 Schützen gleichzeitig"' : ''} aria-label="${esc(r.member.displayName)} vergleichen"></td>
+        <td><input type="checkbox" data-cmp="${r.member.id}" ${checked ? 'checked' : ''} aria-label="${esc(r.member.displayName)} vergleichen"></td>
         <td class="num"><span class="rank ${i < 3 && key === 'avg' && dir < 0 ? 'top' : ''}">${i + 1}.</span></td>
         <td><div class="member-cell">${color ? `<span class="swatch" style="background:${color}"></span>` : ''}<div>${esc(r.member.displayName)}</div></div></td>
         <td class="num">${r.n}</td>
@@ -514,12 +532,15 @@ function renderRanking() {
     ${filterBar()}
     ${tiles}
     <div class="card">
-      ${cardHead(`Rangliste ${esc(discOf().name)}`, `<b>Trend</b> = Ø der letzten ${TREND_WINDOW} Ergebnisse minus Gesamtdurchschnitt im Zeitraum
+      ${cardHead(`Rangliste ${esc(discOf().name)}`, `<b>Einträge</b> = Anzahl der Ergebnisse.<br><br>
+        <b>Durchschnitt</b> = Mittelwert aller Ergebnisse.<br><br><b>Bestwert</b> = höchstes Einzelergebnis.<br><br>
+        <b>Ø letzte ${TREND_WINDOW}</b> = Mittelwert der ${TREND_WINDOW} neuesten Ergebnisse.<br><br>
+        <b>Trend</b> = Ø der letzten ${TREND_WINDOW} Ergebnisse minus Gesamtdurchschnitt im Zeitraum
         (ab ${TREND_WINDOW + 1} Einträgen).<br><br>Häkchen setzen, um Schützen unter „Vergleich“ gegenüberzustellen.`)}
       ${rows.length ? `
       <div class="table-wrap">
         <table class="data">
-          <thead><tr><th><span class="sr-only">Vergleich</span></th><th class="num">Platz</th>${head}</tr></thead>
+          <thead><tr><th><input type="checkbox" id="cmp-all" ${dash.compare.length ? 'checked' : ''} title="${dash.compare.length ? 'Alle Häkchen entfernen' : 'Alle anhaken'}" aria-label="Alle zum Vergleich auswählen oder abwählen"></th><th class="num">Platz</th>${head}</tr></thead>
           <tbody>${body}</tbody>
         </table>
       </div>` : '<p class="hint">Keine Ergebnisse für diese Auswahl.</p>'}
@@ -541,6 +562,14 @@ function renderRanking() {
     dash.compare = cb.checked ? [...dash.compare, id] : dash.compare.filter(x => x !== id);
     render();
   });
+  const cmpAll = document.getElementById('cmp-all');
+  if (cmpAll) {
+    cmpAll.indeterminate = dash.compare.length > 0 && rows.some(r => !dash.compare.includes(r.member.id));
+    cmpAll.onchange = () => {
+      dash.compare = dash.compare.length ? [] : rows.map(r => r.member.id);
+      render();
+    };
+  }
   document.getElementById('go-compare').onclick = () => { dash.view = 'compare'; renderHeader(); render(); };
   document.getElementById('csv').onclick = () => exportRankingCsv(rows);
 }
@@ -556,7 +585,7 @@ function exportRankingCsv(rows) {
 // ----- Vergleich -----
 
 function renderCompare() {
-  if (!dash.disc) { app.innerHTML = noData(); return; }
+  if (needsDisc()) return;
   const rows = memberRows();
   // Beim ersten Öffnen ohne Auswahl die drei besten Schützen vorschlagen
   if (dash.compare.length === 0 && !dash.compareInit) {
@@ -585,22 +614,25 @@ function renderCompare() {
   app.innerHTML = `
     ${filterBar()}
     <div class="card">
-      <div class="card-head"><h2>Vergleich ${esc(discOf().name)}</h2></div>
+      ${cardHead(`Vergleich ${esc(discOf().name)}`, `<b>Linien</b> = gleitender Durchschnitt der letzten ${TREND_WINDOW} Ergebnisse.<br><br>
+        <b>Punkte</b> = einzelne Ergebnisse (hohl = Wettkampf).<br><br><b>Gestrichelt</b> = Vereinsschnitt je Monat.`)}
       <div class="legend">
         ${legend}
         <span class="legend-toggle legend-static"><i class="club-swatch"></i>Vereinsschnitt</span>
-        ${dash.compare.length < MAX_COMPARE && others.length ? `
+        ${others.length ? `
           <select id="add-member" style="width:auto;min-height:34px;padding:4px 10px;font-size:13px">
             <option value="">+ Schütze hinzufügen</option>
             ${others.map(r => `<option value="${r.member.id}">${esc(r.member.displayName)}</option>`).join('')}
           </select>` : ''}
       </div>
-      <p class="hint" style="margin:0 0 10px">Linien = gleitender Durchschnitt der letzten ${TREND_WINDOW} Ergebnisse, Punkte = einzelne Ergebnisse (hohl = Wettkampf), gestrichelt = Vereinsschnitt je Monat.</p>
       ${withData.length ? '<div class="cmp-chart" id="cmp-chart"><div class="tooltip" id="tooltip" hidden></div></div>' : '<p class="hint">Keine Ergebnisse für die ausgewählten Schützen in diesem Zeitraum.</p>'}
     </div>
     ${withData.length ? `
     <div class="card">
-      <h2>Kennzahlen</h2>
+      ${cardHead('Kennzahlen', `Alle Werte beziehen sich auf die oben gewählten Filter (Disziplin, Zeitraum, Art, Altersklasse).<br><br>
+        <b>Durchschnitt</b> = Mittelwert aller Ergebnisse.<br><br><b>Bestwert</b> = höchstes Einzelergebnis.<br><br>
+        <b>Ø letzte ${TREND_WINDOW}</b> = Mittelwert der ${TREND_WINDOW} neuesten Ergebnisse.<br><br>
+        <b>Trend</b> = Ø letzte ${TREND_WINDOW} minus Durchschnitt (ab ${TREND_WINDOW + 1} Einträgen).`)}
       <div class="table-wrap">
         <table class="data">
           <thead><tr><th>Schütze</th><th class="num">Einträge</th><th class="num">Durchschnitt</th><th class="num">Bestwert</th><th class="num">Ø letzte ${TREND_WINDOW}</th><th class="num">Trend</th></tr></thead>
@@ -784,7 +816,7 @@ function renderMembers() {
   app.innerHTML = `
     <div class="card">
       <div class="card-head"><h2>Mitglieder (${dash.members.length})</h2></div>
-      <p class="hint" style="margin:-4px 0 10px">Neue Mitglieder registrieren sich selbst in der App mit dem Vereinscode (siehe „Verein“). Admins sehen dieses Dashboard.</p>
+      <p class="hint" style="margin:-4px 0 10px">Neue Mitglieder registrieren sich selbst in der App mit dem Vereinscode (siehe „Optionen“).</p>
       <div class="table-wrap">
         <table class="data">
           <thead><tr><th>Name</th><th>Registriert</th><th class="num">Ergebnisse</th><th class="num">Letzter Eintrag</th><th>Rolle</th><th class="num">Aktionen</th></tr></thead>
@@ -828,12 +860,25 @@ function renderMembers() {
   });
 }
 
-// ----- Verein -----
+// ----- Optionen -----
+
+// Aufklappbarer Bereich wie in den Optionen der App
+function collapsible(key, title, body) {
+  const open = dash.openSections.has(key);
+  return `
+    <section class="card narrow collapsible ${open ? 'open' : ''}">
+      <button type="button" class="section-head" data-section="${key}" aria-expanded="${open}">
+        <h2>${title}</h2>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+      </button>
+      <div class="section-body">${body}</div>
+    </section>`;
+}
 
 async function renderClub() {
+  const theme = document.documentElement.dataset.theme;
   app.innerHTML = `
-    <div class="card narrow">
-      <h2>Verein</h2>
+    ${collapsible('club', 'Verein', `
       <div class="form-grid">
         <div class="field">
           <label for="c-name">Vereinsname</label>
@@ -845,13 +890,41 @@ async function renderClub() {
         </div>
       </div>
       <p class="hint">Mit dem Vereinscode können sich neue Mitglieder in der App registrieren. Ändere ihn, wenn er in falsche Hände geraten ist – bestehende Konten bleiben gültig.</p>
-      <div class="actions" style="max-width:640px"><button class="btn primary" id="c-save">Speichern</button></div>
-    </div>
-    <div class="card narrow">
-      <h2>Export</h2>
+      <div class="actions"><button class="btn primary" id="c-save">Speichern</button></div>`)}
+    ${collapsible('export', 'Export', `
       <p class="hint" style="margin:0 0 12px">Alle Ergebnisse aller Mitglieder als CSV-Datei (z. B. für Excel).</p>
-      <div class="actions" style="margin-top:0"><button class="btn" id="c-csv">Alle Ergebnisse exportieren</button></div>
+      <div class="actions" style="margin-top:0"><button class="btn" id="c-csv">Alle Ergebnisse exportieren</button></div>`)}
+    <div class="card narrow">
+      <div class="account-row">
+        <div class="avatar" aria-hidden="true">${esc(dash.me.username.slice(0, 1).toUpperCase())}</div>
+        <div class="account-name"><div class="disc-name">${esc(dash.me.username)} <span class="badge">Admin</span></div></div>
+      </div>
+      <div class="actions">
+        <button type="button" class="btn" id="theme-toggle">${theme === 'dark' ? 'Hell' : 'Dunkel'}</button>
+        <button type="button" class="btn" id="logout">Abmelden</button>
+      </div>
     </div>`;
+
+  app.querySelectorAll('[data-section]').forEach(b => b.onclick = () => {
+    const key = b.dataset.section;
+    const open = !dash.openSections.has(key);
+    if (open) dash.openSections.add(key); else dash.openSections.delete(key);
+    b.closest('.collapsible').classList.toggle('open', open);
+    b.setAttribute('aria-expanded', open);
+  });
+  document.getElementById('theme-toggle').onclick = () => {
+    const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+    try { localStorage.setItem('schuetzen-theme', next); } catch (e) { /* nur für diese Sitzung */ }
+    document.documentElement.dataset.theme = next;
+    document.getElementById('theme-toggle').textContent = next === 'dark' ? 'Hell' : 'Dunkel';
+  };
+  document.getElementById('logout').onclick = async () => {
+    await Cloud.signOut();
+    dash.me = null;
+    renderHeader();
+    renderLogin();
+  };
+  document.getElementById('c-csv').onclick = exportAllCsv;
 
   const codeEl = document.getElementById('c-code');
   const { data: code, error } = await Cloud.client.rpc('admin_get_club_code');
@@ -869,8 +942,6 @@ async function renderClub() {
     renderHeader();
     toast('Gespeichert');
   };
-
-  document.getElementById('c-csv').onclick = exportAllCsv;
 }
 
 function exportAllCsv() {

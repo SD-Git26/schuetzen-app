@@ -7,8 +7,8 @@
   <title>Hot Shot Dashboard</title>
   <link rel="icon" href="../icons/icon.svg" type="image/svg+xml">
   <!-- ?v=… bei jeder Änderung erhöhen (gleiche Zahl wie in sw.js), damit Browser keine alte Datei aus dem Zwischenspeicher nehmen -->
-  <link rel="stylesheet" href="../style.css?v=26">
-  <link rel="stylesheet" href="dashboard.css?v=26">
+  <link rel="stylesheet" href="../style.css?v=38">
+  <link rel="stylesheet" href="dashboard.css?v=38">
   <script>
     // Gleiches Design wie in der App (Standard Dunkel)
     let t = 'dark';
@@ -37,24 +37,21 @@
         <span>Mitglieder</span>
       </button>
       <button type="button" data-view="club">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6l8-3z"/><circle cx="12" cy="11" r="3"/></svg>
-        <span>Verein</span>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path stroke-linejoin="round" d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+        <span>Optionen</span>
       </button>
     </nav>
-    <div class="dash-user" id="dash-user"></div>
   </header>
 
+  <!-- Name, Hell/Dunkel und Abmelden stehen unten unter „Optionen“ -->
   <main id="app" class="dash-main"></main>
-
-  <!-- Nur am Handy: Name, Hell/Dunkel und Abmelden am Seitenende -->
-  <footer class="dash-foot" id="dash-foot"></footer>
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="../config.js?v=26"></script>
+  <script src="../config.js?v=38"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-  <script src="../cloud.js?v=26"></script>
-  <script src="../altersklassen.js?v=26"></script>
-  <script src="dashboard.js?v=26"></script>
+  <script src="../cloud.js?v=38"></script>
+  <script src="../altersklassen.js?v=38"></script>
+  <script src="dashboard.js?v=38"></script>
 </body>
 </html>

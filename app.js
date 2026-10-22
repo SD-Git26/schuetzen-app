@@ -394,7 +394,7 @@ function adoptDisc(d) {
   return d;
 }
 
-// Für Auswahllisten in Verlauf und Analyse: nur Disziplinen, die man schon benutzt hat
+// Für Auswahllisten in Schießbuch und Analyse: nur Disziplinen, die man schon benutzt hat
 function sortedDisciplines() {
   return state.disciplines.slice().sort((a, b) => a.name.localeCompare(b.name, 'de', { numeric: true }));
 }
@@ -505,7 +505,7 @@ function toast(msg) {
 
 // ---------- Navigation ----------
 
-const TITLES = { entry: 'Eintrag', history: 'Verlauf', analysis: 'Analyse', options: 'Optionen' };
+const TITLES = { entry: 'Eintrag', history: 'Schießbuch', analysis: 'Analyse', options: 'Optionen' };
 
 const ui = {
   tab: 'entry',
@@ -612,6 +612,9 @@ function renderEntry() {
     }
   }
   const d = discById(dr.disciplineId);
+  // Beim Bearbeiten ist das Ergebnis fest: Disziplin, Serien und Gesamt sind nur noch zu sehen
+  const saved = ui.editId ? state.results.find(x => x.id === ui.editId) : null;
+  if (saved) ui.adjustDisc = false;
 
   // Serienanzahl an Disziplin anpassen (bestehende Eingaben bleiben erhalten)
   if (dr.series.length !== d.series) {
@@ -628,16 +631,17 @@ function renderEntry() {
     <div class="card">
       <div class="field">
         <label for="disc">Disziplin</label>
+        ${saved ? `<input id="disc" class="fixed" value="${esc(d.name)}" readonly tabindex="-1">` : `
         <div class="combo">
           <input id="disc" class="combo-input" role="combobox" aria-expanded="false" aria-controls="disc-list" aria-autocomplete="list"
             autocomplete="off" autocapitalize="none" spellcheck="false" enterkeyhint="done" readonly
             value="${esc(d.name)}" placeholder="Kennzahl oder Name, z. B. 2.11">
           <div class="combo-list" id="disc-list" role="listbox" aria-label="Disziplinen" hidden></div>
-        </div>
+        </div>`}
       </div>
       <div class="disc-info">
         <p class="hint">${d.series} × ${d.shots} Schuss · ${scoringLabel(d)} · max. ${fmtScore(totalMax(d), d)}</p>
-        ${ui.adjustDisc ? '' : '<button type="button" class="link-btn" id="adjust-disc">Anpassen</button>'}
+        ${ui.adjustDisc || saved ? '' : '<button type="button" class="link-btn" id="adjust-disc">Anpassen</button>'}
       </div>
       ${ui.adjustDisc ? `<div class="adjust-box">${discEditForm(d, true)}</div>` : ''}
       <div class="row date-age">
@@ -651,7 +655,13 @@ function renderEntry() {
         </div>
       </div>
 
-      ${dr.totalOnly ? `
+      ${saved ? `
+        ${saved.series && saved.series.length ? `
+        <div class="series-grid" style="grid-template-columns:repeat(${saved.series.length <= 4 ? saved.series.length : (saved.series.length % 4 === 0 ? 4 : 3)}, 1fr)">
+          ${saved.series.map((v, i) => `<div><span class="label">Serie ${i + 1}</span><div class="score-fixed">${fmtScore(v, d)}</div></div>`).join('')}
+        </div>` : ''}
+        <div class="sum-line"><span class="label">Gesamt</span><span class="sum">${fmtScore(saved.total, d)}</span></div>
+        <p class="hint" style="margin:6px 0 14px">Das Ergebnis ist gespeichert und lässt sich nicht mehr ändern.</p>` : dr.totalOnly ? `
         <div class="field">
           <label for="total">Gesamtergebnis</label>
           <input id="total" inputmode="numeric" autocomplete="off" value="${esc(dr.total)}" placeholder="${fmtScore(0, d)}" style="font-size:22px;font-weight:700">
@@ -659,10 +669,11 @@ function renderEntry() {
         <div class="series-grid" style="grid-template-columns:repeat(${d.series <= 4 ? d.series : (d.series % 4 === 0 ? 4 : 3)}, 1fr)">${seriesInputs}</div>
         <div class="sum-line"><span class="label">Gesamt</span><span class="sum" id="sum">–</span></div>`}
 
+      ${saved ? '' : `
       <label class="switch subtle">
         <input type="checkbox" id="total-only" ${dr.totalOnly ? 'checked' : ''}>
         <span>Nur Gesamtergebnis eintragen</span>
-      </label>
+      </label>`}
 
       <div id="entry-error" class="error" hidden></div>
 
@@ -703,7 +714,9 @@ function renderEntry() {
 
   function validate(showAll) {
     let firstError = null;
-    if (dr.totalOnly) {
+    if (saved) {
+      // festes Ergebnis, nichts zu prüfen
+    } else if (dr.totalOnly) {
       const el = document.getElementById('total');
       const err = scoreError(parseNum(dr.total), totalMax(d), d);
       el.classList.toggle('invalid', !!err);
@@ -730,7 +743,7 @@ function renderEntry() {
 
   validate(false);
 
-  bindDiscCombo(document.getElementById('disc'), document.getElementById('disc-list'), d, id => {
+  if (!saved) bindDiscCombo(document.getElementById('disc'), document.getElementById('disc-list'), d, id => {
     dr.disciplineId = id;
     dr.discTouched = true;
     // Zuletzt gewählte Disziplin merken (gilt als Vorauswahl, solange kein fester Standard gesetzt ist)
@@ -740,17 +753,27 @@ function renderEntry() {
   });
   if (ui.adjustDisc) {
     bindDiscForm(d.id, () => { ui.adjustDisc = false; render(); });
-  } else {
+  } else if (!saved) {
     document.getElementById('adjust-disc').onclick = () => { ui.adjustDisc = true; render(); };
   }
   document.getElementById('date').oninput = e => { dr.date = e.target.value; };
-  document.getElementById('entry-age').onchange = e => { dr.ageClassId = e.target.value; dr.ageTouched = true; };
+  document.getElementById('entry-age').onchange = e => {
+    dr.ageClassId = e.target.value;
+    dr.ageTouched = true;
+    // Noch kein Standard (z. B. nach dem ersten Login): die erste Auswahl wird zum Standard wie unter Optionen
+    if (!ageClassById(state.ageClassId) && ageClassById(dr.ageClassId)) {
+      state.ageClassId = dr.ageClassId;
+      state.settingsUpdatedAt = Date.now();
+      saveState();
+      toast(`${ageClassById(dr.ageClassId).name} ist jetzt deine Standard-Altersklasse`);
+    }
+  };
   // Notizfeld wächst mit dem Text mit
   const noteEl = document.getElementById('note');
   const fitNote = () => { noteEl.style.height = 'auto'; noteEl.style.height = noteEl.scrollHeight + 2 + 'px'; };
   noteEl.oninput = () => { dr.note = noteEl.value; fitNote(); };
   if (dr.note) fitNote();
-  document.getElementById('total-only').onchange = e => { dr.totalOnly = e.target.checked; render(); };
+  if (!saved) document.getElementById('total-only').onchange = e => { dr.totalOnly = e.target.checked; render(); };
   document.getElementById('is-comp').onchange = e => { dr.isComp = e.target.checked; render(); };
   if (dr.isComp) {
     document.getElementById('comp-type').onchange = e => { dr.compTypeId = e.target.value; };
@@ -772,7 +795,9 @@ function renderEntry() {
     return parseNum(d.decimal ? autoComma(digits + '0') : digits + '0') > max;
   }
 
-  if (dr.totalOnly) {
+  if (saved) {
+    // keine Eingabefelder für das Ergebnis
+  } else if (dr.totalOnly) {
     const totalEl = document.getElementById('total');
     totalEl.oninput = () => {
       dr.total = readInput(totalEl);
@@ -815,7 +840,10 @@ function renderEntry() {
 
     let series = null;
     let total;
-    if (dr.totalOnly) {
+    if (saved) {
+      series = saved.series;
+      total = saved.total;
+    } else if (dr.totalOnly) {
       total = parseNum(dr.total);
       if (total === null) { errorEl.hidden = false; errorEl.textContent = 'Bitte ein Ergebnis eintragen'; return; }
     } else {
@@ -977,7 +1005,7 @@ function bindDiscCombo(input, list, current, onPick) {
   };
 }
 
-// ---------- Verlauf ----------
+// ---------- Schießbuch ----------
 
 function renderHistory() {
   const filterOpts = ['<option value="all">Alle Disziplinen</option>']
@@ -1007,16 +1035,16 @@ function renderHistory() {
       group += `
         <div class="result-item">
           <div class="result-main">
-            <div class="result-meta">${fmtDate(r.date)} · ${esc(d ? d.name : 'Gelöschte Disziplin')}${ageClassById(r.ageClassId) ? ` · ${esc(ageClassById(r.ageClassId).name)}` : ''}</div>
+            <div class="result-date">${fmtDate(r.date)}</div>
+            <div class="result-meta">${esc(d ? d.name : 'Gelöschte Disziplin')}</div>
             ${r.type === 'competition' ? `<div class="result-comp"><span class="tag-comp">Wettkampf</span> ${esc(competitionLabel(r))}</div>` : ''}
-            ${r.series ? `<div class="result-series">${r.series.map(v => fmtScore(v, d)).join(' · ')}</div>` : ''}
             ${r.note ? `<div class="result-note">${esc(r.note)}</div>` : ''}
-            <div class="result-buttons">
-              <button class="btn small" data-edit="${r.id}">Bearbeiten</button>
-              <button class="btn small danger" data-del="${r.id}">Löschen</button>
-            </div>
           </div>
-          <div class="result-total">${fmtScore(r.total, d)}</div>
+          <div class="result-side">
+            <button class="icon-btn" data-edit="${r.id}" aria-label="Ergebnis vom ${fmtDate(r.date)} bearbeiten" title="Bearbeiten">${ICON_EDIT}</button>
+            <button class="icon-btn danger" data-del="${r.id}" aria-label="Ergebnis vom ${fmtDate(r.date)} löschen" title="Löschen">${ICON_DELETE}</button>
+            <div class="result-total">${fmtScore(r.total, d)}</div>
+          </div>
         </div>`;
     }
     flush();
