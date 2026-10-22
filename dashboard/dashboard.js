@@ -20,7 +20,7 @@ const dash = {
   disc: null,
   period: '1y',
   kind: 'all',
-  ageClass: 'all',   // Filter nach Altersklasse der Mitglieder (aus den Optionen der App)
+  ageClass: 'all',   // Filter nach Altersklasse der Ergebnisse (beim Eintrag gewählt)
   sort: { key: 'avg', dir: -1 },
   compare: [],       // ausgewählte Mitglieder-IDs für den Vergleich (Reihenfolge = Farbe)
   compareInit: false,
@@ -315,6 +315,8 @@ function buildData(profiles, states) {
         compName: comp && comp.typeId ? compById[comp.typeId] || '' : '',
         location: comp ? comp.location || '' : '',
         note: r.note || '',
+        // Altersklasse des Ergebnisses; ältere Einträge ohne Angabe zählen zur Standard-Klasse des Mitglieds
+        ageClassId: ageClassById(r.ageClassId) ? r.ageClassId : m.ageClassId,
       });
       m.total++;
       if (!m.lastDate || r.date > m.lastDate) m.lastDate = r.date;
@@ -342,7 +344,7 @@ function filteredResults() {
   return dash.results.filter(r => r.key === dash.disc
     && (!start || r.date >= start)
     && (dash.kind === 'all' || r.type === dash.kind)
-    && (dash.ageClass === 'all' || memberById(r.memberId).ageClassId === dash.ageClass));
+    && (dash.ageClass === 'all' || r.ageClassId === dash.ageClass));
 }
 
 function statsOf(list) {

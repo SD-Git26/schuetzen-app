@@ -14,15 +14,26 @@ const TOMBSTONE_DAYS = 365;
 // Vorauswahl beim Eintrag, solange kein Standard festgelegt ist: 2.10 Luftpistole
 const DEFAULT_DISC_ID = 'dsb-2.10';
 
+// Reihenfolge = Anzeige in Optionen und Auswahl; selbst angelegte Wettkampfarten folgen danach
 const DEFAULT_COMPETITION_TYPES = [
+  'Pokalschießen',
+  'Liga-Wettkampf',
   'Vereinsmeisterschaft',
   'Kreismeisterschaft',
   'Bezirksmeisterschaft',
   'Landesmeisterschaft',
   'Deutsche Meisterschaft',
-  'Liga-Wettkampf',
-  'Pokalschießen',
 ];
+
+function sortedCompTypes() {
+  const rank = c => {
+    const i = DEFAULT_COMPETITION_TYPES.findIndex(n => n.toLowerCase() === c.name.trim().toLowerCase());
+    return i < 0 ? DEFAULT_COMPETITION_TYPES.length : i;
+  };
+  return state.competitionTypes.map((c, i) => [c, i])
+    .sort((a, b) => rank(a[0]) - rank(b[0]) || a[1] - b[1])
+    .map(([c]) => c);
+}
 
 function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -546,7 +557,17 @@ function freshDraft() {
     isComp: false, // Standard ist Training
     compTypeId: '',
     location: '',
+    ageClassId: state.ageClassId || '', // Standard aus den Optionen
   };
+}
+
+// Auswahlliste der Altersklassen; long = mit Alter und Jahrgängen (in den Optionen)
+function ageClassOptions(selectedId, long) {
+  return `<option value="">${long ? '– keine Angabe –' : '–'}</option>` + AGE_CLASS_GROUPS.map(([group]) => `
+    <optgroup label="${esc(group)}">
+      ${AGE_CLASSES.filter(c => c.group === group).map(c =>
+        `<option value="${c.id}" ${c.id === selectedId ? 'selected' : ''}>${esc(c.name)}${long ? ` · ${esc(c.age)} J. (${esc(c.years)})` : ''}</option>`).join('')}
+    </optgroup>`).join('');
 }
 
 function draftFromResult(r) {
@@ -562,6 +583,7 @@ function draftFromResult(r) {
     isComp: r.type === 'competition',
     compTypeId: (r.competition && compTypeById(r.competition.typeId)) ? r.competition.typeId : '',
     location: (r.competition && r.competition.location) || '',
+    ageClassId: ageClassById(r.ageClassId) ? r.ageClassId : '',
   };
 }
 
@@ -597,9 +619,15 @@ function renderEntry() {
         ${ui.adjustDisc ? '' : '<button type="button" class="link-btn" id="adjust-disc">Anpassen</button>'}
       </div>
       ${ui.adjustDisc ? `<div class="adjust-box">${discEditForm(d, true)}</div>` : ''}
-      <div class="field">
-        <label for="date">Datum</label>
-        <input id="date" type="date" value="${dr.date}" max="${todayISO()}">
+      <div class="row date-age">
+        <div class="field">
+          <label for="date">Datum</label>
+          <input id="date" type="date" value="${dr.date}" max="${todayISO()}">
+        </div>
+        <div class="field">
+          <label for="entry-age">Altersklasse</label>
+          <select id="entry-age">${ageClassOptions(dr.ageClassId, false)}</select>
+        </div>
       </div>
 
       ${dr.totalOnly ? `
@@ -628,7 +656,7 @@ function renderEntry() {
             <label for="comp-type">Art</label>
             <select id="comp-type">
               <option value="">– ohne Angabe –</option>
-              ${state.competitionTypes.map(c => `<option value="${c.id}" ${c.id === dr.compTypeId ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}
+              ${sortedCompTypes().map(c => `<option value="${c.id}" ${c.id === dr.compTypeId ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}
             </select>
           </div>
           <div class="field">
@@ -692,6 +720,7 @@ function renderEntry() {
     document.getElementById('adjust-disc').onclick = () => { ui.adjustDisc = true; render(); };
   }
   document.getElementById('date').oninput = e => { dr.date = e.target.value; };
+  document.getElementById('entry-age').onchange = e => { dr.ageClassId = e.target.value; };
   // Notizfeld wächst mit dem Text mit
   const noteEl = document.getElementById('note');
   const fitNote = () => { noteEl.style.height = 'auto'; noteEl.style.height = noteEl.scrollHeight + 2 + 'px'; };
@@ -781,6 +810,7 @@ function renderEntry() {
       note: dr.note.trim(),
       type: dr.isComp ? 'competition' : 'training',
       competition: dr.isComp ? { typeId: dr.compTypeId || null, location: dr.location.trim() } : null,
+      ageClassId: dr.ageClassId || null,
     };
     if (ui.editId) {
       const r = state.results.find(x => x.id === ui.editId);
@@ -953,7 +983,7 @@ function renderHistory() {
       group += `
         <div class="result-item">
           <div class="result-main">
-            <div class="result-meta">${fmtDate(r.date)} · ${esc(d ? d.name : 'Gelöschte Disziplin')}</div>
+            <div class="result-meta">${fmtDate(r.date)} · ${esc(d ? d.name : 'Gelöschte Disziplin')}${ageClassById(r.ageClassId) ? ` · ${esc(ageClassById(r.ageClassId).name)}` : ''}</div>
             ${r.type === 'competition' ? `<div class="result-comp"><span class="tag-comp">Wettkampf</span> ${esc(competitionLabel(r))}</div>` : ''}
             ${r.series ? `<div class="result-series">${r.series.map(v => fmtScore(v, d)).join(' · ')}</div>` : ''}
             ${r.note ? `<div class="result-note">${esc(r.note)}</div>` : ''}
@@ -1435,17 +1465,10 @@ function renderOptions() {
 
     ${collapsible('ageclass', 'Altersklasse', ageClassById(state.ageClassId) ? esc(ageClassById(state.ageClassId).name) : '', `
       <div class="field">
-        <label for="age-class">Deine Altersklasse (Sportjahr 2027)</label>
-        <select id="age-class">
-          <option value="">– keine Angabe –</option>
-          ${AGE_CLASS_GROUPS.map(([group]) => `
-            <optgroup label="${esc(group)}">
-              ${AGE_CLASSES.filter(c => c.group === group).map(c =>
-                `<option value="${c.id}" ${c.id === state.ageClassId ? 'selected' : ''}>${esc(c.name)} · ${esc(c.age)} J. (${esc(c.years)})</option>`).join('')}
-            </optgroup>`).join('')}
-        </select>
+        <label for="age-class">Standard-Altersklasse (Sportjahr 2027)</label>
+        <select id="age-class">${ageClassOptions(state.ageClassId, true)}</select>
       </div>
-      <p class="hint">Maßgeblich ist das Alter, das du im Sportjahr erreichst. Im Vereins-Dashboard kann nach Altersklasse gefiltert werden.</p>`)}
+      <p class="hint">Ist beim Eintrag vorausgewählt; dort kannst du pro Ergebnis eine andere Klasse wählen. Maßgeblich ist das Alter, das du im Sportjahr erreichst.</p>`)}
 
     ${collapsible('backup', 'Datensicherung', '', `
       <p class="hint" style="margin:0 0 12px">Deine Daten werden automatisch in der Cloud gesichert und sind auf jedem Gerät verfügbar, auf dem du dich anmeldest. Zusätzlich kannst du hier eine Kopie als Datei speichern.</p>
@@ -1498,6 +1521,7 @@ function renderOptions() {
   document.getElementById('age-class').onchange = e => {
     state.ageClassId = e.target.value || null;
     state.settingsUpdatedAt = Date.now();
+    if (ui.draft && !ui.editId) ui.draft.ageClassId = state.ageClassId || '';
     saveState();
     render();
     toast(state.ageClassId ? `Altersklasse: ${ageClassById(state.ageClassId).name}` : 'Altersklasse entfernt');
@@ -1631,7 +1655,7 @@ function compEditForm(c) {
 
 function renderCompTypes() {
   if (state.competitionTypes.length === 0) return '<p class="hint">Noch keine Wettkampfart angelegt.</p>';
-  return state.competitionTypes.map(c => {
+  return sortedCompTypes().map(c => {
     if (ui.editCompId === c.id) return compEditForm(c);
     const count = state.results.filter(r => r.competition && r.competition.typeId === c.id).length;
     return `
