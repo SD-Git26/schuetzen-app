@@ -427,6 +427,17 @@ select { --picker-bg: var(--field); --option-hover: var(--surface); }
 }
 
 .adjust-box { margin-bottom: 14px; }
+
+/* Optionen: Hinweis auf die DSB-Liste, umrandet wie ein Button */
+.dsb-box {
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+  text-align: center;
+}
+
+.combo-input[readonly] { cursor: pointer; caret-color: transparent; }
 .own-label { margin: 18px 0 8px; }
 
 .row { display: flex; gap: 10px; }

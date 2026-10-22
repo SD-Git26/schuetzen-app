@@ -579,7 +579,7 @@ function renderEntry() {
         <label for="disc">Disziplin</label>
         <div class="combo">
           <input id="disc" class="combo-input" role="combobox" aria-expanded="false" aria-controls="disc-list" aria-autocomplete="list"
-            autocomplete="off" autocapitalize="none" spellcheck="false" enterkeyhint="done"
+            autocomplete="off" autocapitalize="none" spellcheck="false" enterkeyhint="done" readonly
             value="${esc(d.name)}" placeholder="Kennzahl oder Name, z. B. 2.11">
           <div class="combo-list" id="disc-list" role="listbox" aria-label="Disziplinen" hidden></div>
         </div>
@@ -819,22 +819,38 @@ function bindDiscCombo(input, list, current, onPick) {
       el.setAttribute('aria-selected', on);
     });
     input.setAttribute('aria-activedescendant', active >= 0 ? 'disc-opt-' + active : '');
+    // Nur die Liste scrollen, nicht die ganze Seite
     const el = document.getElementById('disc-opt-' + active);
-    if (el) el.scrollIntoView({ block: 'center' });
+    if (el) list.scrollTop = el.offsetTop - (list.clientHeight - el.offsetHeight) / 2;
   }
 
   function open() {
     list.hidden = false;
     input.setAttribute('aria-expanded', 'true');
     draw('');
-    input.select();
+    if (!input.readOnly) input.select();
   }
 
   function close() {
     list.hidden = true;
     input.setAttribute('aria-expanded', 'false');
+    input.readOnly = true;
     input.value = current.name;
   }
+
+  // Erst beim zweiten Antippen tippen können – beim ersten öffnet sich nur die Liste (ohne Handy-Tastatur)
+  let reopening = false;
+  function makeEditable() {
+    input.readOnly = false;
+    reopening = true;
+    input.blur();  // neu fokussieren, damit das Handy die Tastatur zeigt
+    input.focus();
+    reopening = false;
+  }
+
+  let wasOpen = false;
+  input.onpointerdown = () => { wasOpen = !list.hidden; };
+  input.onclick = () => { if (wasOpen && input.readOnly) makeEditable(); };
 
   function pick(i) {
     const c = shown[i];
@@ -857,11 +873,15 @@ function bindDiscCombo(input, list, current, onPick) {
     } else if (e.key === 'Escape') {
       close();
       input.blur();
+    } else if (input.readOnly && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      // Am PC direkt lostippen
+      input.readOnly = false;
+      input.value = '';
     }
   };
   // Tastatur zugeklappt oder daneben getippt: eine genau eingegebene Kennzahl gilt als Auswahl
   input.onblur = () => {
-    if (list.hidden) return;
+    if (list.hidden || reopening) return;
     const q = norm(input.value);
     const exact = q ? shown.findIndex(c => c.code.toLowerCase() === q) : -1;
     if (exact >= 0) pick(exact); else close();
@@ -1367,11 +1387,9 @@ function renderOptions() {
     </div>
 
     ${collapsible('disciplines', 'Disziplinen', '', `
-      <div class="disc-item">
-        <div>
-          <div class="disc-name">Disziplinen nach DSB</div>
-          <div class="disc-meta">${DISCIPLINE_CATALOG.length} Disziplinen aus der DSB-Sportordnung und der RSB-Liste B – Auswahl beim Eintrag über Kennzahl oder Name.</div>
-        </div>
+      <div class="dsb-box">
+        <div class="disc-name">Disziplinen nach DSB</div>
+        <div class="disc-meta">${DISCIPLINE_CATALOG.length} Disziplinen aus der DSB-Sportordnung und der RSB-Liste B – Auswahl beim Eintrag über Kennzahl oder Name.</div>
       </div>
       ${own.length ? `<div class="label own-label">Eigene Disziplinen</div>${items}` : ''}
       ${ui.editDiscId === 'new' ? `<div style="margin-top:12px">${discEditForm(null)}</div>` : ''}
@@ -1464,7 +1482,6 @@ function renderOptions() {
   if (ui.editDiscId) {
     bindDiscForm(ui.editDiscId, () => { ui.editDiscId = null; ui.draft = null; render(); });
   }
-
   document.getElementById('export-json').onclick = () => {
     download(`hotshot-backup-${todayISO()}.json`, JSON.stringify(state, null, 2), 'application/json');
   };
