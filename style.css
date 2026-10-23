@@ -495,23 +495,6 @@ select { --picker-bg: var(--field); --option-hover: var(--surface); }
   font-variant-numeric: tabular-nums;
 }
 
-/* Beim Bearbeiten: gespeichertes Ergebnis nur zum Ansehen */
-.score-fixed {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 64px;
-  border: 1px dashed var(--border);
-  border-radius: 10px;
-  color: var(--text-muted);
-  font-size: 24px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-}
-
-input.fixed { background: none; border-style: dashed; border-color: var(--border); color: var(--text-muted); cursor: default; }
-input.fixed:focus { outline: none; }
-
 /* Aufklappbarer Wettkampf-Bereich */
 .comp-box {
   margin-top: 18px;

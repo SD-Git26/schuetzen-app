@@ -1,18 +1,18 @@
 ﻿// Bei jeder Änderung an den App-Dateien die Version erhöhen,
 // damit das Handy die neue Version lädt. Dieselbe Zahl steht als ?v=… in index.html und dashboard/index.html.
-const CACHE = 'hotshot-v38';
+const CACHE = 'hotshot-v39';
 
 const SUPABASE_LIB = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js';
 
 const FILES = [
   './',
   'index.html',
-  'style.css?v=38',
-  'config.js?v=38',
-  'disziplinen.js?v=38',
-  'altersklassen.js?v=38',
-  'cloud.js?v=38',
-  'app.js?v=38',
+  'style.css?v=39',
+  'config.js?v=39',
+  'disziplinen.js?v=39',
+  'altersklassen.js?v=39',
+  'cloud.js?v=39',
+  'app.js?v=39',
   'manifest.webmanifest',
   'icons/icon.svg',
   'icons/icon-192.png',
