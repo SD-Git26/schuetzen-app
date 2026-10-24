@@ -79,7 +79,7 @@
 
 
 .dash-main {
-  max-width: 1200px;
+  max-width: 1400px; /* breit genug, dass alle Filter am Laptop in eine Zeile passen */
   padding: 28px 24px 48px;
 }
 
@@ -97,25 +97,17 @@
 .dash-filters .seg { height: var(--filter-h); }
 .dash-filters .seg button { padding-top: 0; padding-bottom: 0; }
 .dash-filters .spacer { flex: 1; }
-/* Altersklasse ganz rechts in der Filterzeile */
+/* Art + Altersklasse bilden eine Gruppe: passt alles in eine Zeile, steht die Altersklasse ganz rechts.
+   Sonst bricht die Gruppe nach dem Zeitraum um und steht linksbündig (Klasse .wrapped, gesetzt in dashboard.js). */
+.dash-filters .f-group { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; flex: 1 0 auto; }
 .dash-filters .f-age { margin-left: auto; min-width: 190px; }
+.dash-filters .f-group.wrapped { flex-grow: 0; }
+.dash-filters .f-group.wrapped .f-age { margin-left: 0; }
 .dash-meta { font-size: 13px; color: var(--text-muted); }
 
 /* Schaltergruppen (.seg) kommen aus ../style.css – am PC nebeneinander mit natürlicher Breite */
 .dash-filters .seg button { flex: none; padding-left: 12px; padding-right: 12px; font-size: 14px; }
 .seg .l-short { display: none; }
-
-/* Am PC: senkrechter Trennstrich zwischen Zeitraum und Art */
-.seg-kind { position: relative; margin-left: 25px; }
-.seg-kind::before {
-  content: "";
-  position: absolute;
-  left: -21px;
-  top: 2px;
-  bottom: 2px;
-  width: 1px;
-  background: var(--border);
-}
 
 .dash .card { margin-bottom: 20px; }
 .dash .tiles { grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 20px; }
@@ -278,8 +270,8 @@ td input[type="checkbox"], th input[type="checkbox"] { width: 18px; height: 18px
   .dash-filters .seg button { flex: 1; padding-left: 4px; padding-right: 4px; font-size: 13px; }
   .seg-period .l-long { display: none; }
   .seg-period .l-short { display: inline; }
-  .seg-kind { margin-left: 0; margin-top: 4px; }
-  .seg-kind::before { display: none; }
+  .dash-filters .f-group { flex-direction: column; align-items: stretch; gap: 12px; }
+  .seg-kind { margin-top: 4px; }
 
   .dash .tiles { gap: 12px; margin-bottom: 20px; }
   .dash .card { margin-bottom: 20px; }

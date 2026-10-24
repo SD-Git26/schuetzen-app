@@ -391,13 +391,22 @@ function filterBar({ showKind = true } = {}) {
       <select id="f-disc" aria-label="Disziplin">${discOpts}</select>
       <div class="seg seg-period" role="group" aria-label="Zeitraum">${PERIODS.map(([k, l, , short]) =>
         `<button type="button" class="${dash.period === k ? 'active' : ''}" data-period="${k}" aria-pressed="${dash.period === k}" title="${l}"><span class="l-long">${l}</span><span class="l-short">${short}</span></button>`).join('')}</div>
+      <div class="f-group">
       ${showKind ? `<div class="seg seg-kind" role="group" aria-label="Art">${KINDS.map(([k, l]) =>
         `<button type="button" class="${dash.kind === k ? 'active' : ''}" data-kind="${k}" aria-pressed="${dash.kind === k}">${l}</button>`).join('')}</div>` : ''}
       <select id="f-age" class="f-age" aria-label="Altersklasse">
         <option value="all">Alle Altersklassen</option>
         ${AGE_CLASSES.map(c => `<option value="${c.id}" ${c.id === dash.ageClass ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}
       </select>
+      </div>
     </div>`;
+}
+
+// Art und Altersklasse brechen gemeinsam um; dann linksbündig statt Altersklasse ganz rechts
+function checkFilterWrap() {
+  const group = app.querySelector('.f-group');
+  const disc = document.getElementById('f-disc');
+  if (group && disc) group.classList.toggle('wrapped', group.getBoundingClientRect().top >= disc.getBoundingClientRect().bottom);
 }
 
 function bindFilterBar() {
@@ -409,6 +418,7 @@ function bindFilterBar() {
   app.querySelectorAll('[data-kind]').forEach(b => b.onclick = () => { dash.kind = b.dataset.kind; render(); });
   const reload = document.getElementById('reload');
   if (reload) reload.onclick = () => refresh(true);
+  checkFilterWrap();
 }
 
 // Dezenter Hinweis am Seitenende; die Daten werden ohnehin automatisch aktualisiert
@@ -792,6 +802,7 @@ function drawCompareChart(container, series) {
 
 let resizeTimer = null;
 window.addEventListener('resize', () => {
+  checkFilterWrap();
   clearTimeout(resizeTimer);
   resizeTimer = setTimeout(() => { if (dash.view === 'compare') render(); }, 150);
 });
