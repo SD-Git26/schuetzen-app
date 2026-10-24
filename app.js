@@ -565,7 +565,7 @@ function freshDraft() {
   return {
     disciplineId: d ? d.id : null,
     date: todayISO(),
-    totalOnly: false,
+    totalOnly: true, // Standard: nur Gesamtergebnis, Einzelserien optional
     series: d ? Array(d.series).fill('') : [],
     total: '',
     note: '',
@@ -652,16 +652,16 @@ function renderEntry() {
       </div>
 
       ${dr.totalOnly ? `
-        <div class="field">
+        <div class="field total-field">
           <label for="total">Gesamtergebnis</label>
-          <input id="total" inputmode="numeric" autocomplete="off" value="${esc(dr.total)}" placeholder="${fmtScore(0, d)}" style="font-size:22px;font-weight:700">
+          <input id="total" inputmode="numeric" autocomplete="off" value="${esc(dr.total)}" placeholder="${fmtScore(0, d)}">
         </div>` : `
         <div class="series-grid" style="grid-template-columns:repeat(${d.series <= 4 ? d.series : (d.series % 4 === 0 ? 4 : 3)}, 1fr)">${seriesInputs}</div>
         <div class="sum-line"><span class="label">Gesamt</span><span class="sum" id="sum">–</span></div>`}
 
       <label class="switch subtle">
-        <input type="checkbox" id="total-only" ${dr.totalOnly ? 'checked' : ''}>
-        <span>Nur Gesamtergebnis eintragen</span>
+        <input type="checkbox" id="total-only" ${dr.totalOnly ? '' : 'checked'}>
+        <span>Einzelserien eintragen</span>
       </label>
 
       <div id="entry-error" class="error" hidden></div>
@@ -717,7 +717,8 @@ function renderEntry() {
       const nums = dr.series.map(parseNum);
       const sumEl = document.getElementById('sum');
       const valid = nums.filter(n => n !== null && !Number.isNaN(n));
-      sumEl.textContent = valid.length ? fmtScore(round1(valid.reduce((a, b) => a + b, 0)), d) : '–';
+      // Noch keine Serie eingetragen: vorher eingegebenes Gesamtergebnis weiter anzeigen
+      sumEl.textContent = valid.length ? fmtScore(round1(valid.reduce((a, b) => a + b, 0)), d) : (dr.total || '–');
     }
     if (showAll || firstError) {
       errorEl.hidden = !firstError;
@@ -760,7 +761,15 @@ function renderEntry() {
   const fitNote = () => { noteEl.style.height = 'auto'; noteEl.style.height = noteEl.scrollHeight + 2 + 'px'; };
   noteEl.oninput = () => { dr.note = noteEl.value; fitNote(); };
   if (dr.note) fitNote();
-  document.getElementById('total-only').onchange = e => { dr.totalOnly = e.target.checked; render(); };
+  document.getElementById('total-only').onchange = e => {
+    dr.totalOnly = !e.target.checked;
+    // Zurück zum Gesamtergebnis: bereits eingetragene Serien als Summe übernehmen
+    if (dr.totalOnly) {
+      const valid = dr.series.map(parseNum).filter(n => n !== null && !Number.isNaN(n));
+      if (valid.length) dr.total = fmtScore(round1(valid.reduce((a, b) => a + b, 0)), d);
+    }
+    render();
+  };
   document.getElementById('is-comp').onchange = e => { dr.isComp = e.target.checked; render(); };
   if (dr.isComp) {
     document.getElementById('comp-type').onchange = e => { dr.compTypeId = e.target.value; };
@@ -830,7 +839,7 @@ function renderEntry() {
       if (total === null) { errorEl.hidden = false; errorEl.textContent = 'Bitte ein Ergebnis eintragen'; return; }
     } else {
       const nums = dr.series.map(parseNum);
-      if (nums.some(n => n === null)) { errorEl.hidden = false; errorEl.textContent = 'Bitte alle Serien ausfüllen (oder „Nur Gesamtergebnis“ wählen)'; return; }
+      if (nums.some(n => n === null)) { errorEl.hidden = false; errorEl.textContent = 'Bitte alle Serien ausfüllen (oder den Haken bei „Einzelserien eintragen“ entfernen)'; return; }
       series = nums;
       total = round1(nums.reduce((a, b) => a + b, 0));
     }
