@@ -1478,10 +1478,9 @@ function renderOptions() {
   const theme = loadTheme();
 
   view.innerHTML = `
-    <div class="card">
-      <h2>Allgemein</h2>
+    <div class="card option-card">
       <div class="option-row">
-        <span class="label" style="margin:0">Design</span>
+        <h2 style="margin:0">Design</h2>
         <div class="theme-toggle" role="group" aria-label="Design">
           <button type="button" data-theme-btn="light" aria-label="Hell" aria-pressed="${theme === 'light'}" class="${theme === 'light' ? 'active' : ''}">
             <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>

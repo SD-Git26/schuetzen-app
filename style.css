@@ -907,6 +907,11 @@ select { --picker-bg: var(--field); --option-hover: var(--surface); }
 .text-toggle button { width: 56px; font: inherit; font-size: 14px; font-weight: 600; }
 .option-gap { margin-top: 14px; }
 
+/* Design-Kasten so hoch wie die zugeklappten Bereiche darunter */
+.option-card { padding: 8px 8px 8px 16px; }
+.option-card .theme-toggle { padding: 3px; }
+.option-card .theme-toggle button { height: 32px; }
+
 .theme-toggle svg {
   width: 22px; height: 22px;
   fill: none;
