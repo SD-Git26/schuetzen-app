@@ -290,14 +290,12 @@ td input[type="checkbox"], th input[type="checkbox"] { width: 18px; height: 18px
 /* Vereinswahl in der Kopfzeile (Admins mehrerer Vereine) */
 .club-switch { width: auto; min-width: 0; max-width: 260px; height: 36px; min-height: 0; padding-top: 0; padding-bottom: 0; }
 .club-switch[hidden] { display: none; }
-.dash-nav button[hidden] { display: none; }
 .optional { font-weight: 400; color: var(--text-muted); }
 .club-code { font-family: ui-monospace, Consolas, monospace; letter-spacing: .04em; }
 .code-input { font-family: ui-monospace, Consolas, monospace; letter-spacing: .04em; text-transform: uppercase; }
 .code-layout { display: flex; gap: 24px; align-items: flex-start; flex-wrap: wrap; }
 .code-layout > div:first-child { flex: 1 1 280px; }
 .code-layout .qr-box { width: 180px; margin: 0; }
-.operator td a { color: inherit; }
 .dash .narrow > .legal-links { max-width: 640px; }
 
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }

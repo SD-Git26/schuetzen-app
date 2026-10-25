@@ -13,7 +13,7 @@ const KINDS = [['all', 'Alle'], ['training', 'Training'], ['competition', 'Wettk
 const CLUB_KEY = 'hotshot-dash-club-id';
 
 const dash = {
-  me: null,          // eigenes Profil (is_operator = Betreiber von Hot Shot)
+  me: null,          // eigenes Profil
   clubs: [],         // eigene Vereine aus my_clubs()
   clubId: null,      // gerade angezeigter Verein (nur Vereine, in denen man Admin ist)
   clubName: '',
@@ -137,7 +137,6 @@ function download(filename, content, type) {
 
 // Vereine, deren Dashboard man öffnen darf
 const adminClubs = () => dash.clubs.filter(c => c.is_admin && c.status === 'active');
-const isOperator = () => !!(dash.me && dash.me.is_operator);
 
 function renderHeader() {
   const admin = adminClubs();
@@ -146,15 +145,12 @@ function renderHeader() {
   sw.innerHTML = admin.map(c => `<option value="${c.id}" ${c.id === dash.clubId ? 'selected' : ''}>${esc(c.name)}</option>`).join('');
   const nameEl = document.getElementById('club-name');
   nameEl.hidden = !sw.hidden;
-  nameEl.textContent = dash.clubName ? `· ${dash.clubName}` : dash.view === 'operator' ? '· Betreiber' : 'Vereins-Dashboard';
+  nameEl.textContent = dash.clubName ? `· ${dash.clubName}` : 'Vereins-Dashboard';
   // Vereinsname merken: Vor der Anmeldung gibt die Cloud ihn nicht heraus, der Login-Bildschirm zeigt ihn trotzdem
   if (dash.clubName) try { localStorage.setItem('hotshot-dash-club', dash.clubName); } catch (e) { /* dann nur „Dashboard“ */ }
   const nav = document.getElementById('dash-nav');
-  nav.hidden = !(dash.me && (dash.clubId || isOperator()));
-  nav.querySelectorAll('[data-view]').forEach(b => {
-    b.hidden = b.dataset.view === 'operator' ? !isOperator() : !dash.clubId;
-    b.classList.toggle('active', b.dataset.view === dash.view);
-  });
+  nav.hidden = !(dash.me && dash.clubId);
+  nav.querySelectorAll('[data-view]').forEach(b => b.classList.toggle('active', b.dataset.view === dash.view));
   document.body.classList.toggle('has-nav', !nav.hidden);
   // Abgemeldet: keine Kopfleiste, Logo steht mittig über dem Anmeldefeld (wie in der App)
   document.body.classList.toggle('signed-out', !dash.me);
@@ -172,7 +168,6 @@ document.getElementById('club-switch').onchange = async e => {
   dash.clubId = e.target.value;
   try { localStorage.setItem(CLUB_KEY, dash.clubId); } catch (err) { /* dann nur bis zum Neuladen */ }
   Object.assign(dash, { disc: null, compare: [], compareInit: false, sig: null });
-  if (dash.view === 'operator') dash.view = 'ranking';
   try { await loadAll(dash.me.id); } catch (err) { toast(Cloud.errorText(err)); }
 };
 
@@ -259,7 +254,7 @@ async function loadAll(userId, { silent = false } = {}) {
   if (!silent) app.innerHTML = '<div class="card empty">Daten werden geladen …</div>';
   const [me, clubs] = await Promise.all([Cloud.getProfile(userId), Cloud.myClubs()]);
   if (!me) throw new Error('Profil nicht gefunden');
-  const accessBefore = JSON.stringify([dash.me && dash.me.is_operator, adminClubs()]);
+  const accessBefore = JSON.stringify(adminClubs());
   dash.me = me;
   dash.clubs = clubs;
   const admin = adminClubs();
@@ -271,20 +266,16 @@ async function loadAll(userId, { silent = false } = {}) {
   }
   const club = admin.find(c => c.id === dash.clubId);
   dash.clubName = club ? club.name : '';
-  // Nur Betreiber, in keinem Verein Admin: gleich die Betreiber-Seite
-  if (!dash.clubId && isOperator()) dash.view = 'operator';
-  const accessChanged = accessBefore !== JSON.stringify([me.is_operator, admin]);
+  const accessChanged = accessBefore !== JSON.stringify(admin);
   if (!silent || accessChanged) renderHeader();
-  if (!dash.clubId && !isOperator()) { renderNoAccess(); return; }
+  if (!dash.clubId) { renderNoAccess(); return; }
 
-  if (dash.clubId) {
-    const members = await Cloud.call('admin_club_members', { club: dash.clubId });
-    const sig = JSON.stringify([dash.clubId, dash.clubName, members.map(m => [m.user_id, m.username, m.is_admin, m.updated_at])]);
-    dash.loadedAt = new Date();
-    if (silent && sig === dash.sig && !accessChanged) return;
-    dash.sig = sig;
-    buildData(members);
-  }
+  const members = await Cloud.call('admin_club_members', { club: dash.clubId });
+  const sig = JSON.stringify([dash.clubId, dash.clubName, members.map(m => [m.user_id, m.username, m.is_admin, m.updated_at])]);
+  dash.loadedAt = new Date();
+  if (silent && sig === dash.sig && !accessChanged) return;
+  dash.sig = sig;
+  buildData(members);
   renderHeader();
   render();
 }
@@ -308,7 +299,7 @@ async function refresh(manual) {
 // Nicht, während ein Dialog offen ist oder jemand im Bereich „Optionen“ gerade Eingaben macht.
 function autoRefreshAllowed() {
   return dash.me && dash.clubId && document.visibilityState === 'visible'
-    && !document.querySelector('dialog[open]') && dash.view !== 'club' && dash.view !== 'operator';
+    && !document.querySelector('dialog[open]') && dash.view !== 'club';
 }
 setInterval(() => { if (autoRefreshAllowed()) refresh(false); }, 60000);
 document.addEventListener('visibilitychange', () => { if (autoRefreshAllowed()) refresh(false); });
@@ -427,9 +418,7 @@ function colorOf(memberId) {
 // ---------- Darstellung ----------
 
 function render() {
-  if (!dash.me) return;
-  if (dash.view === 'operator') { if (isOperator()) renderOperator(); return; }
-  if (!dash.clubId) return;
+  if (!dash.me || !dash.clubId) return;
   ({ ranking: renderRanking, compare: renderCompare, members: renderMembers, club: renderClub })[dash.view]();
 }
 
@@ -1087,102 +1076,6 @@ function exportAllCsv() {
     lines.push(row.map(cell).join(';'));
   }
   download(`hotshot-verein-${isoOf(new Date())}.csv`, '﻿' + lines.join('\r\n'), 'text/csv');
-}
-
-// ----- Betreiber -----
-// Übersicht aller Vereine für den Betreiber von Hot Shot. Ergebnisse von Mitgliedern sind hier nie zu sehen.
-
-async function renderOperator() {
-  if (!app.querySelector('.operator')) app.innerHTML = '<div class="card empty">Vereine werden geladen …</div>';
-  let list;
-  try { list = await Cloud.call('operator_clubs'); } catch (e) {
-    app.innerHTML = `<div class="card empty">${esc(Cloud.errorText(e))}</div>`;
-    return;
-  }
-  if (dash.view !== 'operator') return;
-  const fresh = list.filter(c => !c.operator_seen).length;
-  const members = list.reduce((n, c) => n + Number(c.member_count), 0);
-  const rows = list.map(c => `
-    <tr>
-      <td><div>${esc(c.name)}${c.operator_seen ? '' : ' <span class="badge">neu</span>'}</div>${c.location ? `<div class="dash-meta">${esc(c.location)}</div>` : ''}</td>
-      <td>${esc(c.contact_name || '–')}${c.contact_email ? `<div class="dash-meta"><a href="mailto:${esc(c.contact_email)}">${esc(c.contact_email)}</a></div>` : ''}</td>
-      <td><span class="club-code">${esc(c.code)}</span></td>
-      <td class="num">${c.member_count}</td>
-      <td>${esc(c.admins || '–')}</td>
-      <td>${fmtDate(c.created_at)}</td>
-      <td>${c.status === 'locked' ? '<span class="delta neg">gesperrt</span>' : 'aktiv'}</td>
-      <td class="num">
-        ${c.operator_seen ? '' : `<button class="btn small" data-op-seen="${c.id}">Gesehen</button>`}
-        <button class="btn small" data-op-lock="${c.id}">${c.status === 'locked' ? 'Entsperren' : 'Sperren'}</button>
-        <button class="btn small danger" data-op-delete="${c.id}">Löschen</button>
-      </td>
-    </tr>`).join('');
-
-  app.innerHTML = `
-    <div class="operator">
-      <div class="card">
-        <div class="card-head"><h2>Vereine (${list.length})</h2></div>
-        <p class="hint" style="margin:-4px 0 10px">${members} Mitgliedschaften insgesamt${fresh ? ` · ${fresh} neue ${fresh === 1 ? 'Verein' : 'Vereine'} seit dem letzten Ansehen` : ''}. Ergebnisse der Mitglieder sind hier bewusst nicht zu sehen.</p>
-        <div class="table-wrap">
-          <table class="data">
-            <thead><tr><th>Verein</th><th>Ansprechpartner</th><th>Code</th><th class="num">Mitglieder</th><th>Admins</th><th>Angelegt</th><th>Status</th><th class="num">Aktionen</th></tr></thead>
-            <tbody>${rows || '<tr><td colspan="8" class="dash-meta">Noch keine Vereine.</td></tr>'}</tbody>
-          </table>
-        </div>
-      </div>
-      <div class="card narrow">
-        <h2>Hilfe für Vereine</h2>
-        <p class="hint" style="margin:-4px 0 14px">Für Fälle, die ein Vereins-Admin nicht selbst lösen kann – z. B. ein Mitglied in mehreren Vereinen hat sein Passwort vergessen, oder ein Verein hat keinen Admin mehr.</p>
-        <div class="form-grid">
-          <div class="field">
-            <label for="op-user">Benutzername</label>
-            <input id="op-user" autocomplete="off" autocapitalize="none" spellcheck="false">
-          </div>
-          <div class="field">
-            <label for="op-club">Verein</label>
-            <select id="op-club">${list.map(c => `<option value="${c.id}">${esc(c.name)}${c.location ? ` (${esc(c.location)})` : ''}</option>`).join('')}</select>
-          </div>
-        </div>
-        <div class="actions">
-          <button class="btn" id="op-reset">Passwort zurücksetzen</button>
-          <button class="btn" id="op-admin">Im gewählten Verein zum Admin machen</button>
-        </div>
-      </div>
-    </div>`;
-
-  const byId = id => list.find(c => c.id === id);
-  const act = async (fn, args, ok) => {
-    try { await Cloud.call(fn, args); toast(ok); renderOperator(); } catch (e) { toast(Cloud.errorText(e)); }
-  };
-  app.querySelectorAll('[data-op-seen]').forEach(b => b.onclick = () => {
-    const c = byId(b.dataset.opSeen);
-    act('operator_update_club', { club: c.id, new_status: c.status, seen: true }, 'Als gesehen markiert');
-  });
-  app.querySelectorAll('[data-op-lock]').forEach(b => b.onclick = async () => {
-    const c = byId(b.dataset.opLock);
-    const lock = c.status !== 'locked';
-    if (lock && !(await dialog(`„${c.name}“ sperren?\n\nDie Admins kommen nicht mehr ins Dashboard und niemand kann mehr mit dem Vereinscode beitreten. Die Mitglieder können die App weiter benutzen.`, 'Sperren', { danger: true }))) return;
-    act('operator_update_club', { club: c.id, new_status: lock ? 'locked' : 'active', seen: true }, lock ? 'Verein gesperrt' : 'Verein entsperrt');
-  });
-  app.querySelectorAll('[data-op-delete]').forEach(b => b.onclick = async () => {
-    const c = byId(b.dataset.opDelete);
-    const typed = await dialog(`„${c.name}“ endgültig löschen?\n\nDer Verein und alle Mitgliedschaften werden gelöscht. Die Konten der Mitglieder und ihre eigenen Ergebnisse bleiben erhalten.\n\nZum Bestätigen den Vereinsnamen eintippen:`, 'Endgültig löschen', { input: true, danger: true });
-    if (typed === null) return;
-    if (typed.trim() !== c.name) { toast('Der Name stimmt nicht – nichts gelöscht'); return; }
-    act('operator_delete_club', { club: c.id }, 'Verein gelöscht');
-  });
-  const user = () => document.getElementById('op-user').value.trim();
-  document.getElementById('op-reset').onclick = async () => {
-    if (!user()) { toast('Bitte einen Benutzernamen eingeben'); return; }
-    const pw = await dialog(`Neues Passwort für ${user()}\n\nMindestens 6 Zeichen. Teile es der Person persönlich mit.`, 'Passwort setzen', { input: true });
-    if (pw === null) return;
-    act('operator_reset_password', { target_username: user(), new_password: pw }, 'Passwort geändert');
-  };
-  document.getElementById('op-admin').onclick = () => {
-    if (!user()) { toast('Bitte einen Benutzernamen eingeben'); return; }
-    const club = document.getElementById('op-club').value;
-    act('operator_set_admin', { club, target_username: user(), value: true }, `${user()} ist jetzt Admin`);
-  };
 }
 
 // ---------- Start ----------

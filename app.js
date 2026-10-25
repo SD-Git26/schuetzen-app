@@ -468,7 +468,7 @@ function clubFields(p, v) {
     </div>
     <div class="field">
       <label for="${p}-contact-email">Kontakt-E-Mail</label>
-      <input id="${p}-contact-email" name="contactEmail" type="email" value="${esc(v.contactEmail)}" maxlength="254" autocomplete="email" autocapitalize="none" spellcheck="false">
+      <input id="${p}-contact-email" name="contactEmail" type="email" value="${esc(v.contactEmail)}" maxlength="254" autocomplete="off" autocapitalize="none" spellcheck="false">
       <p class="hint">Nur für Rückfragen zum Verein. Angemeldet wird weiter mit Benutzername und Passwort.</p>
     </div>`;
 }
@@ -2198,7 +2198,8 @@ function renderAuth(message) {
           ${create ? `${clubFields('a', f)}<div class="label own-label">Dein Konto</div>` : ''}
           <div class="field">
             <label for="a-username">Benutzername</label>
-            <input id="a-username" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" value="${esc(f.username)}" placeholder="${reg ? 'So erscheinst du in der Vereinsauswertung' : ''}" maxlength="30">
+            <input id="a-username" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" value="${esc(f.username)}" placeholder="${reg ? 'z. B. max.muster' : ''}" maxlength="${reg ? 254 : 30}">
+            ${reg ? `<p class="hint" id="username-hint">So erscheinst du in der Vereinsauswertung. Nur a–z, Ziffern, Punkt, Minus und Unterstrich – keine E-Mail-Adresse.</p>` : ''}
           </div>
           <div class="field">
             <label for="a-password">Passwort</label>
@@ -2239,6 +2240,21 @@ function renderAuth(message) {
   view.querySelectorAll('#auth-form input').forEach(el => el.oninput = el.onchange = () => {
     f[el.name] = el.type === 'checkbox' ? el.checked : el.value;
   });
+  // Neues Konto: ungültige Benutzernamen (z. B. eine vom Browser eingesetzte E-Mail-Adresse) gleich passend machen
+  const userEl = document.getElementById('a-username');
+  const fixUsername = () => {
+    if (!reg || !userEl.value.trim()) return;
+    const clean = Cloud.cleanUsername(userEl.value);
+    if (clean === userEl.value) return;
+    const onlyCase = clean === Cloud.normalizeUsername(userEl.value);
+    userEl.value = f.username = clean;
+    if (onlyCase) return; // nur Großbuchstaben: stillschweigend klein schreiben
+    const hint = document.getElementById('username-hint');
+    hint.textContent = 'Der Benutzername wurde angepasst (keine E-Mail-Adresse, keine Umlaute oder Leerzeichen). Du kannst ihn noch ändern.';
+    hint.classList.add('notice');
+  };
+  userEl.addEventListener('change', fixUsername);
+  userEl.addEventListener('blur', fixUsername);
   // Zum Vereinscode gleich anzeigen, welcher Verein es ist
   const codeEl = document.getElementById('a-club');
   if (codeEl) codeEl.onblur = () => showClubPreview(codeEl.value);
@@ -2259,6 +2275,7 @@ function renderAuth(message) {
   form.onsubmit = async e => {
     e.preventDefault();
     if (authUi.busy) return;
+    fixUsername();
     const uErr = Cloud.usernameError(f.username);
     if (uErr) return fail(uErr);
     if (!f.password) return fail('Bitte ein Passwort eingeben');

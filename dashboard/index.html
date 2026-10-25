@@ -7,8 +7,8 @@
   <title>Hot Shot Dashboard</title>
   <link rel="icon" href="../icons/icon.svg" type="image/svg+xml">
   <!-- ?v=… bei jeder Änderung erhöhen (gleiche Zahl wie in sw.js), damit Browser keine alte Datei aus dem Zwischenspeicher nehmen -->
-  <link rel="stylesheet" href="../style.css?v=52">
-  <link rel="stylesheet" href="dashboard.css?v=52">
+  <link rel="stylesheet" href="../style.css?v=54">
+  <link rel="stylesheet" href="dashboard.css?v=54">
   <script>
     // Gleiches Design wie in der App (Standard Dunkel)
     let t = 'dark';
@@ -42,11 +42,6 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><path stroke-linejoin="round" d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
         <span>Optionen</span>
       </button>
-      <!-- Nur für den Betreiber von Hot Shot -->
-      <button type="button" data-view="operator" hidden>
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 21h18M5 21V9l7-5 7 5v12M9 21v-6h6v6"/></svg>
-        <span>Betreiber</span>
-      </button>
     </nav>
   </header>
 
@@ -55,10 +50,10 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="../config.js?v=52"></script>
+  <script src="../config.js?v=54"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-  <script src="../cloud.js?v=52"></script>
-  <script src="../altersklassen.js?v=52"></script>
-  <script src="dashboard.js?v=52"></script>
+  <script src="../cloud.js?v=54"></script>
+  <script src="../altersklassen.js?v=54"></script>
+  <script src="dashboard.js?v=54"></script>
 </body>
 </html>

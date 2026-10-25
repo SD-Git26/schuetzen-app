@@ -9,7 +9,8 @@ const Cloud = (() => {
   const libLoaded = !!(window.supabase && window.supabase.createClient);
 
   // Anmeldung bleibt auf dem Gerät gespeichert, bis man sich abmeldet
-  const AUTH_KEY = 'hotshot-auth';
+  // Die Betreiber-Seite nutzt einen eigenen Schlüssel, damit sie die Anmeldung in App und Dashboard nicht berührt
+  const AUTH_KEY = cfg.authKey || 'hotshot-auth';
   const client = configured && libLoaded
     ? window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, {
       auth: { persistSession: true, autoRefreshToken: true, storageKey: AUTH_KEY },
@@ -24,6 +25,16 @@ const Cloud = (() => {
     if (u.length < 3 || u.length > 30) return 'Benutzername: 3 bis 30 Zeichen';
     if (!/^[a-z0-9._-]+$/.test(u)) return 'Benutzername: nur Buchstaben a–z, Ziffern, Punkt, Minus und Unterstrich (keine Umlaute, keine Leerzeichen)';
     return null;
+  }
+
+  // Macht aus einer Eingabe einen gültigen Benutzernamen: aus einer E-Mail-Adresse (z. B. vom Browser
+  // vorausgefüllt) wird der Teil vor dem @, Umlaute werden umschrieben, Leerzeichen zu Punkten
+  function cleanUsername(s) {
+    let u = normalizeUsername(s);
+    if (u.includes('@')) u = u.split('@')[0];
+    u = u.replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss')
+      .replace(/\s+/g, '.').replace(/[^a-z0-9._-]/g, '');
+    return u.slice(0, 30);
   }
 
   // Benutzernamen werden intern als E-Mail-Adresse geführt, es wird aber nie eine E-Mail verschickt
@@ -133,7 +144,7 @@ const Cloud = (() => {
   const deleteMyAccount = () => call('delete_my_account');
 
   return {
-    configured, libLoaded, client, normalizeUsername, usernameError, emailFor, errorText, signIn, signUp, signOut,
+    configured, libLoaded, client, normalizeUsername, cleanUsername, usernameError, emailFor, errorText, signIn, signUp, signOut,
     getSession, getSessionInfo, getProfile, call, myClubs, clubByCode, joinClub, createClub, leaveClub, deleteMyAccount,
   };
 })();
