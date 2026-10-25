@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Datenschutzerklärung – Hot Shot</title>
+  <link rel="icon" href="../icons/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="../style.css?v=52">
+  <link rel="stylesheet" href="rechtliches.css?v=52">
+  <script>
+    let t = 'dark';
+    try { if (localStorage.getItem('schuetzen-theme') === 'light') t = 'light'; } catch (e) {}
+    document.documentElement.dataset.theme = t;
+  </script>
+</head>
+<body>
+<main class="legal">
+  <a class="legal-brand" href="../"><img src="../icons/icon.svg" alt="" width="32" height="32"> Hot Shot</a>
+
+  <h1>Datenschutzerklärung</h1>
+  <p class="stand">Stand: <mark class="todo">[DATUM]</mark></p>
+
+  <p>Hot Shot ist eine Web-App für Sportschützen: Ergebnisse eintragen, auswerten und – wenn man möchte – mit dem eigenen
+    Verein teilen. Hier steht, welche Daten dabei verarbeitet werden, wofür und welche Rechte du hast.
+    Kurz gesagt: <strong>keine Werbung, kein Tracking, keine Analyse-Werkzeuge, keine Cookies</strong>, und für ein
+    Konto brauchst du weder deinen echten Namen noch eine E-Mail-Adresse.</p>
+
+  <h2>1. Verantwortlicher</h2>
+  <p><mark class="todo">[NAME DES BETREIBERS]</mark><br>
+    <mark class="todo">[ANSCHRIFT]</mark><br>
+    E-Mail: <mark class="todo">[E-MAIL-ADRESSE]</mark></p>
+  <p>Für die Auswertung deiner Ergebnisse im <strong>Vereins-Dashboard</strong> ist dein <strong>Verein</strong>
+    verantwortlich (Abschnitt 6). Der Betreiber verarbeitet diese Daten nur im Auftrag des Vereins nach einem
+    <a href="av-vertrag.html">Vertrag zur Auftragsverarbeitung</a>. Fragen dazu kannst du an deinen Verein oder an den
+    Betreiber richten.</p>
+
+  <h2>2. Aufruf der App</h2>
+  <p>Beim Öffnen von App oder Dashboard lädt dein Browser die Programmdateien von GitHub Pages und einige
+    Programmbibliotheken (Datenbank-Anbindung, QR-Code) über das Netzwerk jsDelivr. Dabei werden technisch bedingt
+    deine IP-Adresse, Zeitpunkt, abgerufene Datei und Browserangaben an diese Anbieter übermittelt und dort kurzzeitig
+    in Protokollen gespeichert.</p>
+  <p>Zweck: Auslieferung und Absicherung der App. Rechtsgrundlage: Art. 6 Abs. 1 lit. f DSGVO (berechtigtes Interesse
+    an einer funktionierenden, sicheren App).</p>
+
+  <h2>3. Dein Konto</h2>
+  <p>Für ein Konto speichern wir deinen <strong>Benutzernamen</strong>, dein <strong>Passwort</strong> (nur als
+    verschlüsselter Hashwert – niemand kann es lesen, auch nicht der Betreiber) und den Zeitpunkt der Registrierung.
+    Technisch wird aus dem Benutzernamen eine interne Adresse der Form „name@mitglied.hotshot.app“ gebildet; an sie
+    werden nie E-Mails verschickt.</p>
+  <p>Rechtsgrundlage: Art. 6 Abs. 1 lit. b DSGVO (Nutzung von Hot Shot nach den
+    <a href="nutzungsbedingungen.html">Nutzungsbedingungen</a>).</p>
+
+  <h2>4. Deine Ergebnisse und Einstellungen</h2>
+  <p>Gespeichert wird, was du einträgst: Datum, Disziplin, Ergebnis und Serien, Training oder Wettkampf, Wettkampfart
+    und -ort, Notizen, deine Altersklasse, eigene Disziplinen und Wettkampfarten sowie deine Einstellungen. Die Daten
+    liegen in der Cloud-Datenbank (Abschnitt 8) und als Kopie auf deinem Gerät, damit die App auch ohne Internet funktioniert.</p>
+  <p>Rechtsgrundlage: Art. 6 Abs. 1 lit. b DSGVO. Trag in Notizen bitte keine Angaben über andere Personen und keine
+    Gesundheitsdaten ein.</p>
+
+  <h2>5. Speicherung auf deinem Gerät</h2>
+  <p>Hot Shot verwendet keine Cookies. Im Speicher deines Browsers (Local Storage) werden abgelegt: deine Anmeldung
+    (damit du angemeldet bleibst), eine Kopie deiner Daten und deiner Vereine (für die Nutzung ohne Internet), noch nicht
+    hochgeladene Änderungen sowie Komfort-Einstellungen wie Hell/Dunkel und die zuletzt gewählte Disziplin.
+    Beim Abmelden werden deine Daten von diesem Gerät entfernt.</p>
+  <p>Rechtsgrundlage: § 25 Abs. 2 Nr. 2 TDDDG (für den von dir gewünschten Dienst unbedingt erforderlich) und
+    Art. 6 Abs. 1 lit. b DSGVO.</p>
+
+  <h2>6. Vereine und Vereins-Dashboard</h2>
+  <p>Du kannst mit einem Vereinscode einem oder mehreren Vereinen beitreten. Gespeichert werden dann deine
+    Mitgliedschaft, der Beitrittszeitpunkt und ggf. deine Admin-Rolle. Beim Eintragen wählst du, für welchen Verein ein
+    Ergebnis zählt.</p>
+  <p>Die <strong>Admins eines Vereins</strong> sehen im Dashboard deinen Benutzernamen, deinen Beitrittszeitpunkt und –
+    solange du unter „Optionen → Vereinsanalyse akzeptieren“ für diesen Verein <strong>Ja</strong> eingestellt hast –
+    die Ergebnisse, die du <strong>diesem</strong> Verein zugeordnet hast, mit Notizen und Altersklasse. Ergebnisse für
+    andere Vereine und deine übrigen Daten sehen sie nicht. Admins können dein Passwort zurücksetzen, es aber nicht lesen.</p>
+  <p>Zweck: Training, Vergleich und Vereinsarbeit. Verantwortlich ist der jeweilige Verein; Rechtsgrundlage ist dein
+    Beitritt zum Verein in Hot Shot (Art. 6 Abs. 1 lit. b DSGVO) bzw. das berechtigte Interesse des Vereins
+    (Art. 6 Abs. 1 lit. f DSGVO). Du kannst die Freigabe für jeden Verein jederzeit abschalten oder den Verein verlassen –
+    danach sieht er deine Ergebnisse nicht mehr.</p>
+
+  <h2>7. Einen Verein anlegen</h2>
+  <p>Wer einen Verein anlegt, gibt Vereinsname, optional den Ort, den eigenen Namen als Ansprechpartner und eine
+    Kontakt-E-Mail an. Gespeichert wird außerdem der Zeitpunkt, zu dem die Nutzungsbedingungen und der
+    AV-Vertrag akzeptiert wurden. Der Betreiber sieht diese Angaben, die Zahl der Mitglieder und die Benutzernamen der
+    Admins, um Hot Shot zu betreiben, Vereine bei Fragen zu erreichen und Missbrauch zu verhindern – aber keine
+    Ergebnisse.</p>
+  <p>Rechtsgrundlage: Art. 6 Abs. 1 lit. b und f DSGVO.</p>
+
+  <h2>8. Dienstleister</h2>
+  <div class="table-scroll">
+  <table>
+    <tr><th>Anbieter</th><th>Wofür</th><th>Ort</th></tr>
+    <tr><td>Supabase Inc.</td><td>Datenbank und Anmeldung</td><td>Rechenzentrum in Frankfurt am Main (EU)</td></tr>
+    <tr><td>GitHub Inc. (GitHub Pages)</td><td>Auslieferung der App-Dateien</td><td>USA</td></tr>
+    <tr><td>jsDelivr (Netzwerk mit Cloudflare und Fastly)</td><td>Auslieferung von Programmbibliotheken</td><td>weltweit, auch USA</td></tr>
+  </table>
+  </div>
+  <p>Mit den Anbietern bestehen Verträge zur Auftragsverarbeitung. Für Übermittlungen in die USA gilt der
+    Angemessenheitsbeschluss der EU-Kommission (EU-US Data Privacy Framework) bzw. es werden
+    EU-Standardvertragsklauseln verwendet. <mark class="todo">[ANGABEN BEI DEN ANBIETERN PRÜFEN]</mark></p>
+
+  <h2>9. Wie lange Daten gespeichert werden</h2>
+  <ul>
+    <li>Konto, Ergebnisse und Einstellungen: bis du dein Konto löschst (App → Optionen → Konto löschen).
+      Gelöschte Einträge werden sofort entfernt; ein interner Löschvermerk bleibt höchstens ein Jahr, damit die Löschung
+      auch auf deinen anderen Geräten ankommt.</li>
+    <li>Mitgliedschaft in einem Verein: bis du den Verein verlässt, ein Admin dich entfernt oder der Verein gelöscht wird.</li>
+    <li>Vereinsangaben: bis der Verein gelöscht wird.</li>
+    <li>Protokolle der Dienstleister: nach deren Fristen, in der Regel wenige Tage bis Wochen.</li>
+    <li>Datensicherungen: <mark class="todo">[z. B. „höchstens 7 Tage“ – nur mit Supabase Pro; ohne Pro diesen Punkt streichen]</mark></li>
+  </ul>
+
+  <h2>10. Deine Rechte</h2>
+  <p>Du hast das Recht auf Auskunft (Art. 15 DSGVO), Berichtigung (Art. 16), Löschung (Art. 17), Einschränkung der
+    Verarbeitung (Art. 18), Datenübertragbarkeit (Art. 20) und Widerspruch gegen Verarbeitungen auf Grundlage
+    berechtigter Interessen (Art. 21). Vieles kannst du direkt in der App erledigen:</p>
+  <ul>
+    <li>alle eigenen Daten als Datei herunterladen: Optionen → Datensicherung → Backup exportieren</li>
+    <li>Ergebnisse bearbeiten oder löschen: Schießbuch</li>
+    <li>Freigabe für einen Verein abschalten oder Verein verlassen: Optionen → Mein Verein</li>
+    <li>Konto mit allen Daten löschen: Optionen → Konto löschen</li>
+  </ul>
+  <p>Für alles andere genügt eine E-Mail an den Betreiber. Außerdem kannst du dich bei einer
+    Datenschutz-Aufsichtsbehörde beschweren, zum Beispiel bei der für den Betreiber zuständigen:
+    <mark class="todo">[z. B. Landesbeauftragte für Datenschutz und Informationsfreiheit Nordrhein-Westfalen, Kavalleriestraße 2–4, 40213 Düsseldorf – je nach Wohnsitz des Betreibers anpassen]</mark>.</p>
+
+  <h2>11. Kinder und Jugendliche</h2>
+  <p>Wer jünger als 16 Jahre ist, darf Hot Shot nur mit Zustimmung der Eltern nutzen. Für ein Konto sind keine Angaben
+    nötig, die Rückschlüsse auf die Identität zulassen; wähle am besten einen Benutzernamen ohne vollen Namen.</p>
+
+  <h2>12. Sonstiges</h2>
+  <p>Die Angabe von Daten ist freiwillig; ohne Konto lässt sich Hot Shot aber nicht nutzen. Es findet keine
+    automatisierte Entscheidungsfindung oder Profilbildung im Sinne von Art. 22 DSGVO statt. Ändert sich Hot Shot,
+    passen wir diese Erklärung an; es gilt die jeweils hier veröffentlichte Fassung.</p>
+
+  <p class="stand" style="margin-top:28px"><a href="impressum.html">Impressum</a> · <a href="nutzungsbedingungen.html">Nutzungsbedingungen</a> · <a href="av-vertrag.html">AV-Vertrag</a></p>
+</main>
+</body>
+</html>

@@ -992,6 +992,43 @@ dialog.confirm .actions { margin-top: 18px; }
 
 .btn.danger-fill { background: var(--danger); border-color: var(--danger); color: #fff; }
 
+/* Vereine */
+.danger-text { color: var(--danger); }
+.optional { font-weight: 400; color: var(--text-muted); }
+.auth-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.auth-create { margin-top: 18px; text-align: center; }
+.auth-create .hint { margin: 0 0 8px; }
+.switch.terms { align-items: flex-start; margin-top: 14px; color: var(--text); }
+.switch.terms input { flex-shrink: 0; margin-top: 2px; }
+.switch.terms a { color: var(--accent); }
+.legal-links { margin: 18px 0 0; text-align: center; font-size: 13px; color: var(--text-muted); }
+.legal-links a { color: inherit; }
+.club-item + .club-item { border-top: 1px solid var(--border); padding-top: 14px; margin-top: 14px; }
+.club-title { min-width: 0; }
+.club-code-row { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.club-code { font-family: ui-monospace, Consolas, monospace; letter-spacing: .04em; }
+.join-field { margin-top: 18px; border-top: 1px solid var(--border); padding-top: 14px; }
+.join-row { display: flex; gap: 8px; }
+.join-row input { flex: 1; min-width: 0; }
+.found-club { margin-top: 18px; }
+.found-club > .disc-name { margin-bottom: 12px; }
+.card > .link-btn { display: block; margin-top: 8px; }
+.club-code-big {
+  margin: 12px 0;
+  padding: 12px;
+  border-radius: 10px;
+  background: var(--surface-2);
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-align: center;
+}
+.qr-box { width: 200px; max-width: 100%; margin: 0 auto; background: #fff; border-radius: 8px; padding: 6px; }
+.qr-box:empty { height: 200px; }
+.qr-box svg { display: block; width: 100%; height: auto; }
+.qr-hint { text-align: center; }
+
 /* Toast */
 #toast {
   position: fixed;

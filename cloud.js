@@ -39,7 +39,19 @@ const Cloud = (() => {
     if (/password.*(at least|characters)/i.test(m)) return 'Das Passwort muss mindestens 6 Zeichen haben';
     if (/HOTSHOT_WRONG_CLUB_CODE/.test(m)) return 'Der Vereinscode stimmt nicht';
     if (/HOTSHOT_INVALID_USERNAME/.test(m)) return 'Ungültiger Benutzername';
-    if (/database error saving new user/i.test(m)) return 'Registrierung fehlgeschlagen – bitte Vereinscode prüfen';
+    if (/HOTSHOT_INVALID_CLUB_NAME/.test(m)) return 'Vereinsname: 2 bis 80 Zeichen';
+    if (/HOTSHOT_INVALID_LOCATION/.test(m)) return 'Ort: höchstens 80 Zeichen';
+    if (/HOTSHOT_INVALID_CONTACT_NAME/.test(m)) return 'Bitte deinen Namen angeben (2 bis 80 Zeichen)';
+    if (/HOTSHOT_INVALID_EMAIL/.test(m)) return 'Bitte eine gültige E-Mail-Adresse angeben';
+    if (/HOTSHOT_TERMS_REQUIRED/.test(m)) return 'Bitte die Nutzungsbedingungen und den AV-Vertrag akzeptieren';
+    if (/HOTSHOT_TOO_MANY_CLUBS/.test(m)) return 'Gerade wurden sehr viele Vereine angelegt – bitte später erneut versuchen';
+    if (/HOTSHOT_TOO_MANY_OWN_CLUBS/.test(m)) return 'Mit einem Konto lassen sich höchstens 3 Vereine gründen';
+    if (/HOTSHOT_LAST_ADMIN/.test(m)) return 'Du bist der letzte Admin dieses Vereins. Ernenne zuerst im Dashboard ein anderes Mitglied zum Admin.';
+    if (/HOTSHOT_INVALID_CODE/.test(m)) return 'Vereinscode: 6 bis 30 Zeichen, nur Buchstaben, Ziffern und Minus';
+    if (/HOTSHOT_CODE_TAKEN/.test(m)) return 'Diesen Vereinscode benutzt schon ein anderer Verein';
+    if (/HOTSHOT_RESET_OTHER_CLUB/.test(m)) return 'Dieses Mitglied ist auch in einem anderen Verein. Das Passwort kann nur der Betreiber von Hot Shot zurücksetzen.';
+    // Supabase gibt Fehler beim Registrieren nicht im Einzelnen weiter
+    if (/database error saving new user/i.test(m)) return 'Registrierung fehlgeschlagen – bitte die Angaben prüfen oder später erneut versuchen';
     if (/signups? not allowed|signup.*disabled/i.test(m)) return 'Registrierung ist in Supabase abgeschaltet (siehe Anleitung)';
     if (/email not confirmed/i.test(m)) return 'In Supabase ist noch „Confirm email“ eingeschaltet (siehe Anleitung)';
     if (/rate limit|too many/i.test(m)) return 'Zu viele Versuche – bitte kurz warten';
@@ -53,14 +65,20 @@ const Cloud = (() => {
     return data.session;
   }
 
-  async function signUp({ username, password, displayName, clubCode }) {
-    const check = await client.rpc('check_club_code', { code: clubCode });
-    if (check.error) throw check.error;
-    if (!check.data) throw new Error('HOTSHOT_WRONG_CLUB_CODE');
+  // Entweder mit clubCode einem Verein beitreten oder mit newClub einen neuen Verein anlegen
+  // (newClub = { name, location, contact_name, contact_email, accept_terms })
+  async function signUp({ username, password, displayName, clubCode, newClub }) {
+    if (!newClub) {
+      const check = await client.rpc('check_club_code', { code: clubCode });
+      if (check.error) throw check.error;
+      if (!check.data) throw new Error('HOTSHOT_WRONG_CLUB_CODE');
+    }
+    const meta = { username: normalizeUsername(username), display_name: displayName };
+    if (newClub) meta.new_club = newClub; else meta.club_code = clubCode;
     const { data, error } = await client.auth.signUp({
       email: emailFor(username),
       password,
-      options: { data: { username: normalizeUsername(username), display_name: displayName, club_code: clubCode } },
+      options: { data: meta },
     });
     if (error) throw error;
     if (!data.session) throw new Error('Email not confirmed');
@@ -98,5 +116,24 @@ const Cloud = (() => {
     return data;
   }
 
-  return { configured, libLoaded, client, normalizeUsername, usernameError, emailFor, errorText, signIn, signUp, signOut, getSession, getSessionInfo, getProfile };
+  // Datenbank-Funktion aufrufen; Fehler werden geworfen
+  async function call(fn, args) {
+    const { data, error } = await client.rpc(fn, args);
+    if (error) throw error;
+    return data;
+  }
+
+  // Meine Vereine, der älteste zuerst: [{ id, name, location, is_admin, status, joined_at, code (nur für Admins) }]
+  const myClubs = () => call('my_clubs');
+  // Verein zum Code (vor dem Beitreten anzeigen) oder null
+  const clubByCode = async code => (await call('club_by_code', { code }))[0] || null;
+  const joinClub = code => call('join_club', { code });
+  const createClub = newClub => call('create_club', { new_club: newClub });
+  const leaveClub = club => call('leave_club', { club });
+  const deleteMyAccount = () => call('delete_my_account');
+
+  return {
+    configured, libLoaded, client, normalizeUsername, usernameError, emailFor, errorText, signIn, signUp, signOut,
+    getSession, getSessionInfo, getProfile, call, myClubs, clubByCode, joinClub, createClub, leaveClub, deleteMyAccount,
+  };
 })();

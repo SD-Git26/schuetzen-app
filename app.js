@@ -82,6 +82,8 @@ function normalizeState(s) {
   // Entfallene Altersklassen durch ihren Ersatz ersetzen
   // Freigabe für das Vereins-Dashboard; ohne Angabe (ältere Stände) gilt sie als erteilt
   if (typeof s.shareWithClub !== 'boolean') s.shareWithClub = true;
+  // Freigabe je Verein { clubId: true/false }; fehlt ein Verein, gilt shareWithClub
+  if (!s.shareWithClubs || typeof s.shareWithClubs !== 'object' || Array.isArray(s.shareWithClubs)) s.shareWithClubs = {};
   const ageId = id => (ageClassById(id) ? ageClassById(id).id : null);
   s.ageClassId = ageId(s.ageClassId);
   s.results.forEach(r => { if (r.ageClassId) r.ageClassId = ageId(r.ageClassId); });
@@ -121,6 +123,7 @@ function mergeStates(a, b) {
     defaultDisciplineId: newer.defaultDisciplineId,
     ageClassId: newer.ageClassId,
     shareWithClub: newer.shareWithClub,
+    shareWithClubs: newer.shareWithClubs,
     settingsUpdatedAt: newer.settingsUpdatedAt,
   });
 }
@@ -307,6 +310,7 @@ async function syncNow() {
     }
     sync.lastSync = new Date();
     setSyncStatus(isDirty() && !sync.again ? 'error' : 'ok');
+    tagOldResults();
   } catch (e) {
     setSyncStatus(isAuthError(e) ? 'auth' : navigator.onLine ? 'error' : 'offline');
     if (sync.status === 'error') scheduleSync(30000);
@@ -338,6 +342,159 @@ setInterval(() => {
 document.getElementById('sync-status').addEventListener('click', () => {
   endSession('Bitte melde dich erneut an.', true);
 });
+
+// ---------- Vereine ----------
+
+// Vereine des Kontos, der älteste zuerst; auf dem Gerät zwischengespeichert für den Offline-Betrieb.
+// [{ id, name, location, is_admin, status, joined_at, code (nur für Admins) }]
+let clubs = [];
+const clubsKey = userId => `hotshot-clubs-${userId}`;
+// Verein, für den zuletzt eingetragen wurde
+const lastClubKey = userId => `hotshot-last-club-${userId}`;
+
+function clubById(id) { return clubs.find(c => c.id === id) || null; }
+
+// Vorauswahl beim Eintrag: der zuletzt gewählte Verein, sonst der älteste
+function currentClubId() {
+  let last = null;
+  try { last = account && localStorage.getItem(lastClubKey(account.userId)); } catch (e) { /* kein Speicher */ }
+  return (clubById(last) || clubs[0] || { id: '' }).id;
+}
+
+// Zustimmung zur Vereinsanalyse für einen Verein; ohne eigene Angabe gilt die allgemeine
+function sharesWith(clubId) {
+  const v = state.shareWithClubs[clubId];
+  return typeof v === 'boolean' ? v : state.shareWithClub;
+}
+
+async function refreshClubs() {
+  if (!Cloud.client || !navigator.onLine || !account) return;
+  const userId = account.userId;
+  try {
+    const list = await Cloud.myClubs();
+    if (!account || account.userId !== userId) return;
+    const changed = JSON.stringify(list) !== JSON.stringify(clubs);
+    clubs = list;
+    try { localStorage.setItem(clubsKey(userId), JSON.stringify(clubs)); } catch (e) { /* dann beim nächsten Start neu laden */ }
+    tagOldResults();
+    if (changed) refreshAfterSync();
+  } catch (e) { /* beim nächsten Start erneut */ }
+}
+
+// Ergebnisse aus der Zeit vor den Vereinen gehören zum ältesten Verein (so wertet es auch die Datenbank)
+function tagOldResults() {
+  if (!clubs.length) return;
+  const old = state.results.filter(r => r.clubId === undefined || r.clubId === null);
+  if (!old.length) return;
+  old.forEach(r => touch(Object.assign(r, { clubId: clubs[0].id })));
+  saveState();
+}
+
+// Link zum Beitreten, z. B. für den QR-Code: öffnet die App mit ausgefülltem Vereinscode
+function inviteLink(code) {
+  return new URL('?verein=' + encodeURIComponent(code), document.baseURI).href;
+}
+
+const QR_LIB = 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js';
+let qrLibLoading = null;
+function loadQrLib() {
+  if (window.qrcode) return Promise.resolve();
+  if (!qrLibLoading) {
+    qrLibLoading = new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = QR_LIB;
+      s.onload = resolve;
+      s.onerror = () => { qrLibLoading = null; reject(new Error('QR')); };
+      document.head.appendChild(s);
+    });
+  }
+  return qrLibLoading;
+}
+
+// Vereinscode mit QR-Code zum Weitergeben; created = gleich nach dem Anlegen des Vereins
+function showClubCode(club, created) {
+  const dlg = document.createElement('dialog');
+  dlg.className = 'confirm club-code-dialog';
+  dlg.innerHTML = `
+    <p class="confirm-title">${created ? 'Dein Verein ist eingerichtet!' : esc(club.name)}</p>
+    <p class="confirm-text">${created
+      ? `„${esc(club.name)}“ ist angelegt und du bist Admin. Gib deinen Mitgliedern diesen Vereinscode oder lass sie den QR-Code scannen:`
+      : 'Mit diesem Code oder dem QR-Code registrieren sich neue Mitglieder in der App:'}</p>
+    <div class="club-code-big">${esc(club.code)}</div>
+    <div class="qr-box" aria-label="QR-Code zum Beitreten"></div>
+    <p class="hint qr-hint">Tipp: Mach ein Bildschirmfoto und häng den QR-Code im Schützenhaus aus.</p>
+    <div class="actions">
+      <button type="button" class="btn" data-copy>Code kopieren</button>
+      ${navigator.share ? '<button type="button" class="btn" data-share-link>Teilen</button>' : ''}
+      <button type="button" class="btn primary" data-close>Fertig</button>
+    </div>`;
+  const close = () => { dlg.close(); dlg.remove(); };
+  dlg.querySelector('[data-close]').onclick = close;
+  dlg.addEventListener('cancel', e => { e.preventDefault(); close(); });
+  dlg.querySelector('[data-copy]').onclick = async () => {
+    try { await navigator.clipboard.writeText(club.code); toast('Code kopiert'); } catch (e) { toast('Kopieren nicht möglich'); }
+  };
+  const shareBtn = dlg.querySelector('[data-share-link]');
+  if (shareBtn) shareBtn.onclick = () => navigator.share({
+    title: 'Hot Shot',
+    text: `Tritt „${club.name}“ in Hot Shot bei. Vereinscode: ${club.code}`,
+    url: inviteLink(club.code),
+  }).catch(() => {});
+  document.body.appendChild(dlg);
+  dlg.showModal();
+  const box = dlg.querySelector('.qr-box');
+  loadQrLib().then(() => {
+    const qr = window.qrcode(0, 'M');
+    qr.addData(inviteLink(club.code));
+    qr.make();
+    box.innerHTML = qr.createSvgTag({ cellSize: 4, margin: 2, scalable: true });
+  }).catch(() => { box.remove(); dlg.querySelector('.qr-hint').textContent = 'QR-Code konnte nicht geladen werden (keine Internetverbindung?).'; });
+}
+
+// Angaben für einen neuen Verein; p = Präfix der Feld-IDs, v = bisherige Eingaben
+function clubFields(p, v) {
+  return `
+    <div class="field">
+      <label for="${p}-club-name">Vereinsname</label>
+      <input id="${p}-club-name" name="clubName" value="${esc(v.clubName)}" maxlength="80" placeholder="z. B. Sportschützen Musterstadt">
+    </div>
+    <div class="field">
+      <label for="${p}-club-location">Ort <span class="optional">(freiwillig)</span></label>
+      <input id="${p}-club-location" name="clubLocation" value="${esc(v.clubLocation)}" maxlength="80">
+    </div>
+    <div class="field">
+      <label for="${p}-contact-name">Dein Name</label>
+      <input id="${p}-contact-name" name="contactName" value="${esc(v.contactName)}" maxlength="80" autocomplete="name" placeholder="Ansprechpartner für den Verein">
+    </div>
+    <div class="field">
+      <label for="${p}-contact-email">Kontakt-E-Mail</label>
+      <input id="${p}-contact-email" name="contactEmail" type="email" value="${esc(v.contactEmail)}" maxlength="254" autocomplete="email" autocapitalize="none" spellcheck="false">
+      <p class="hint">Nur für Rückfragen zum Verein. Angemeldet wird weiter mit Benutzername und Passwort.</p>
+    </div>`;
+}
+
+function termsField(p, checked) {
+  return `
+    <label class="switch subtle terms">
+      <input type="checkbox" id="${p}-terms" name="accept" ${checked ? 'checked' : ''}>
+      <span>Ich akzeptiere im Namen des Vereins die <a href="${new URL('rechtliches/nutzungsbedingungen.html', document.baseURI).href}" target="_blank" rel="noopener">Nutzungsbedingungen</a>
+        und den <a href="${new URL('rechtliches/av-vertrag.html', document.baseURI).href}" target="_blank" rel="noopener">AV-Vertrag</a>.</span>
+    </label>`;
+}
+
+// Prüft die Vereinsangaben und liefert sie so, wie die Datenbank sie erwartet – oder eine Fehlermeldung
+function newClubFrom(v) {
+  const name = v.clubName.trim();
+  const contact = v.contactName.trim();
+  const email = v.contactEmail.trim();
+  if (name.length < 2) return { error: 'Bitte den Vereinsnamen eingeben' };
+  if (contact.length < 2) return { error: 'Bitte deinen Namen eingeben' };
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return { error: 'Bitte eine gültige E-Mail-Adresse eingeben' };
+  if (!v.accept) return { error: 'Bitte die Nutzungsbedingungen und den AV-Vertrag akzeptieren' };
+  return { club: { name, location: v.clubLocation.trim(), contact_name: contact, contact_email: email, accept_terms: true } };
+}
+
+const emptyClubForm = () => ({ clubName: '', clubLocation: '', contactName: '', contactEmail: '', accept: false });
 
 // ---------- Design (hell/dunkel) ----------
 
@@ -521,6 +678,8 @@ const ui = {
   adjustDisc: false,    // Eintrag: Serien/Wertung der gewählten Disziplin anpassen
   editCompId: null,     // Wettkampfart, die gerade umbenannt wird
   openSections: new Set(), // aufgeklappte Bereiche in den Optionen
+  foundClub: false,     // Optionen: Formular „Neuen Verein gründen“ offen
+  clubForm: null,       // Eingaben dafür
 };
 
 const view = document.getElementById('view');
@@ -573,7 +732,15 @@ function freshDraft() {
     compTypeId: '',
     location: '',
     ageClassId: state.ageClassId || '', // Standard aus den Optionen
+    clubId: currentClubId(),
   };
+}
+
+// Auswahl, für welchen Verein das Ergebnis zählt (nur bei mehreren Vereinen sichtbar)
+function clubOptions(selectedId) {
+  const opts = clubs.map(c => `<option value="${c.id}" ${c.id === selectedId ? 'selected' : ''}>${esc(c.name)}</option>`);
+  if (selectedId && !clubById(selectedId)) opts.push(`<option value="${esc(selectedId)}" selected>Früherer Verein</option>`);
+  return opts.join('');
 }
 
 // Auswahlliste der Altersklassen; long = mit Alter und Jahrgängen (in den Optionen)
@@ -596,6 +763,7 @@ function draftFromResult(r) {
     compTypeId: (r.competition && compTypeById(r.competition.typeId)) ? r.competition.typeId : '',
     location: (r.competition && r.competition.location) || '',
     ageClassId: ageClassById(r.ageClassId) ? r.ageClassId : '',
+    clubId: r.clubId === undefined || r.clubId === null ? (clubs[0] ? clubs[0].id : '') : r.clubId,
   };
 }
 
@@ -606,6 +774,7 @@ function renderEntry() {
   // auch wenn sie erst nach dem Start (Abgleich mit der Cloud) ankommen
   if (!ui.editId) {
     if (!dr.ageTouched) dr.ageClassId = state.ageClassId || '';
+    if (!dr.clubTouched) dr.clubId = currentClubId();
     if (!dr.discTouched) {
       const std = standardDisc();
       if (std && std.id !== dr.disciplineId) dr.disciplineId = std.id;
@@ -640,6 +809,11 @@ function renderEntry() {
         ${ui.adjustDisc ? '' : '<button type="button" class="link-btn" id="adjust-disc">Anpassen</button>'}
       </div>
       ${ui.adjustDisc ? `<div class="adjust-box">${discEditForm(d, true)}</div>` : ''}
+      ${clubs.length > 1 ? `
+      <div class="field">
+        <label for="entry-club">Verein</label>
+        <select id="entry-club">${clubOptions(dr.clubId)}</select>
+      </div>` : ''}
       <div class="row date-age">
         <div class="field">
           <label for="date">Datum</label>
@@ -745,6 +919,13 @@ function renderEntry() {
     document.getElementById('adjust-disc').onclick = () => { ui.adjustDisc = true; render(); };
   }
   document.getElementById('date').oninput = e => { dr.date = e.target.value; };
+  const clubEl = document.getElementById('entry-club');
+  if (clubEl) clubEl.onchange = e => {
+    dr.clubId = e.target.value;
+    dr.clubTouched = true;
+    // Gewählten Verein für die nächsten Einträge merken
+    if (!ui.editId && clubById(dr.clubId)) try { localStorage.setItem(lastClubKey(account.userId), dr.clubId); } catch (err) { /* dann nur bis zum Schließen */ }
+  };
   document.getElementById('entry-age').onchange = e => {
     dr.ageClassId = e.target.value;
     dr.ageTouched = true;
@@ -854,6 +1035,8 @@ function renderEntry() {
       type: dr.isComp ? 'competition' : 'training',
       competition: dr.isComp ? { typeId: dr.compTypeId || null, location: dr.location.trim() } : null,
       ageClassId: dr.ageClassId || null,
+      // Noch kein Verein bekannt (z. B. offline beim ersten Start): wird später dem ältesten Verein zugeordnet
+      clubId: dr.clubId || null,
     };
     if (ui.editId) {
       const r = state.results.find(x => x.id === ui.editId);
@@ -1023,11 +1206,13 @@ function renderHistory() {
         body += `<div class="month-label">${MONTHS[dt.getMonth()]} ${dt.getFullYear()}</div>`;
       }
       const d = discById(r.disciplineId);
+      // Bei mehreren Vereinen steht dabei, für welchen das Ergebnis zählt
+      const club = clubs.length > 1 ? clubById(r.clubId == null ? clubs[0].id : r.clubId) : null;
       group += `
         <div class="result-item">
           <div class="result-main">
             <div class="result-date">${fmtDate(r.date)}</div>
-            <div class="result-meta">${esc(d ? d.name : 'Gelöschte Disziplin')}</div>
+            <div class="result-meta">${esc(d ? d.name : 'Gelöschte Disziplin')}${club ? ` · ${esc(club.name)}` : ''}</div>
             ${r.type === 'competition' ? `<div class="result-comp"><span class="tag-comp">Wettkampf</span> ${esc(competitionLabel(r))}</div>` : ''}
             ${r.note ? `<div class="result-note">${esc(r.note)}</div>` : ''}
           </div>
@@ -1525,32 +1710,26 @@ function renderOptions() {
       </div>
       <input type="file" id="import-file" accept="application/json,.json" hidden>`)}
 
+    ${clubsCard()}
+
     <div class="card">
       <h2>Konto</h2>
       <div class="account-row">
         <div class="avatar" aria-hidden="true">${esc(account.username.slice(0, 1).toUpperCase())}</div>
         <div class="account-name">
-          <div class="disc-name">${esc(account.username)}${account.isAdmin ? ' <span class="badge">Admin</span>' : ''}</div>
+          <div class="disc-name">${esc(account.username)}</div>
         </div>
       </div>
       <p class="hint" id="sync-detail">${syncDetailText()}</p>
-      <div class="option-row option-gap">
-        <span class="label" style="margin:0">Vereinsanalyse akzeptieren</span>
-        <div class="theme-toggle text-toggle" role="group" aria-label="Vereinsanalyse akzeptieren">
-          ${[[true, 'Ja'], [false, 'Nein']].map(([v, l]) => `
-            <button type="button" data-share="${v}" aria-pressed="${state.shareWithClub === v}" class="${state.shareWithClub === v ? 'active' : ''}">${l}</button>`).join('')}
-        </div>
-      </div>
-      <p class="hint">${state.shareWithClub
-        ? 'Deine Ergebnisse erscheinen unter deinem Benutzernamen im Vereins-Dashboard.'
-        : 'Deine Ergebnisse werden nicht an das Vereins-Dashboard geliefert. Sie bleiben in deinem Konto gesichert.'}</p>
       <div class="actions">
         <button class="btn ${sync.status === 'auth' ? 'primary' : ''}" id="logout">${sync.status === 'auth' ? 'Neu anmelden' : 'Abmelden'}</button>
       </div>
       ${account.isAdmin ? `<a class="link-subtle" href="dashboard/" target="_blank" rel="noopener">Vereins-Dashboard öffnen ↗</a>` : ''}
+      <button type="button" class="link-btn danger-text" id="delete-account">Konto löschen</button>
     </div>
 
-    <p class="hint" style="text-align:center">${state.results.length} Ergebnisse</p>`;
+    <p class="hint" style="text-align:center">${state.results.length} Ergebnisse</p>
+    ${legalLinks()}`;
 
   view.querySelectorAll('[data-section]').forEach(b => b.onclick = () => {
     const key = b.dataset.section;
@@ -1560,15 +1739,7 @@ function renderOptions() {
     b.setAttribute('aria-expanded', open);
   });
 
-  view.querySelectorAll('[data-share]').forEach(b => b.onclick = () => {
-    const share = b.dataset.share === 'true';
-    if (share === state.shareWithClub) return;
-    state.shareWithClub = share;
-    state.settingsUpdatedAt = Date.now();
-    saveState();
-    render();
-    toast(share ? 'Vereinsanalyse akzeptiert' : 'Keine Daten mehr an das Vereins-Dashboard');
-  });
+  bindClubsCard();
 
   view.querySelectorAll('[data-theme-btn]').forEach(b => b.onclick = () => {
     setTheme(b.dataset.themeBtn);
@@ -1592,6 +1763,17 @@ function renderOptions() {
     // Abgelaufene Anmeldung: neu anmelden, ohne die Daten auf dem Gerät zu verlieren
     if (sync.status === 'auth') endSession('Bitte melde dich erneut an.', true);
     else logout();
+  };
+
+  document.getElementById('delete-account').onclick = async () => {
+    const ok = await askConfirm(`Konto „${account.username}“ endgültig löschen?\n\nAlle deine Ergebnisse, Disziplinen und Einstellungen werden gelöscht – in der Cloud und auf allen Geräten. Das lässt sich nicht rückgängig machen. Sichere vorher bei Bedarf ein Backup (Optionen → Datensicherung).`, 'Löschen');
+    if (!ok) return;
+    if (!navigator.onLine) { toast('Keine Internetverbindung'); return; }
+    try {
+      await Cloud.deleteMyAccount();
+      endSession('Dein Konto wurde gelöscht.');
+      await Cloud.signOut();
+    } catch (e) { toast(Cloud.errorText(e)); }
   };
 
   const addBtn = document.getElementById('add-disc');
@@ -1664,6 +1846,7 @@ function renderOptions() {
       if (!(await askConfirm(msg, 'Backup laden'))) return;
       // Ältere Backups kennen die Vereinsanalyse-Einstellung noch nicht: die aktuelle bleibt dann erhalten
       if (typeof data.shareWithClub !== 'boolean') data.shareWithClub = state.shareWithClub;
+      if (!data.shareWithClubs) data.shareWithClubs = state.shareWithClubs;
       const loaded = normalizeState(data);
       // Alles Bisherige, was im Backup fehlt, als gelöscht vermerken; alles aus dem Backup gilt als neuester Stand
       const keep = new Set([...loaded.disciplines, ...loaded.competitionTypes, ...loaded.results].map(x => x.id));
@@ -1685,6 +1868,147 @@ function renderOptions() {
       fileInput.value = '';
     }
   };
+}
+
+// Optionen: Vereine mit Zustimmung zur Vereinsanalyse je Verein, Beitreten und Gründen
+function clubsCard() {
+  const items = clubs.map(c => {
+    const share = sharesWith(c.id);
+    return `
+      <div class="club-item">
+        <div class="option-row">
+          <div class="club-title">
+            <div class="disc-name">${esc(c.name)}${c.is_admin ? ' <span class="badge">Admin</span>' : ''}${c.status === 'locked' ? ' <span class="badge">gesperrt</span>' : ''}</div>
+            ${c.location ? `<div class="disc-meta">${esc(c.location)}</div>` : ''}
+          </div>
+          <button type="button" class="link-btn danger-text" data-leave="${c.id}">Verlassen</button>
+        </div>
+        ${c.code ? `
+        <div class="club-code-row">
+          <span class="disc-meta">Vereinscode</span>
+          <strong class="club-code">${esc(c.code)}</strong>
+          <button type="button" class="link-btn" data-show-code="${c.id}">QR-Code</button>
+        </div>` : ''}
+        <div class="option-row option-gap">
+          <span class="label" style="margin:0">Vereinsanalyse akzeptieren</span>
+          <div class="theme-toggle text-toggle" role="group" aria-label="Vereinsanalyse für ${esc(c.name)} akzeptieren">
+            ${[[true, 'Ja'], [false, 'Nein']].map(([v, l]) => `
+              <button type="button" data-share-club="${c.id}" data-share="${v}" aria-pressed="${share === v}" class="${share === v ? 'active' : ''}">${l}</button>`).join('')}
+          </div>
+        </div>
+        <p class="hint">${share
+          ? 'Ergebnisse, die du für diesen Verein einträgst, erscheinen unter deinem Benutzernamen im Vereins-Dashboard.'
+          : 'Dieser Verein bekommt deine Ergebnisse nicht zu sehen. Sie bleiben in deinem Konto gesichert.'}</p>
+      </div>`;
+  }).join('');
+
+  return `
+    <div class="card">
+      <h2>${clubs.length > 1 ? 'Meine Vereine' : 'Mein Verein'}</h2>
+      ${items || '<p class="hint" style="margin:0">Du bist in keinem Verein. Tritt mit einem Vereinscode bei oder gründe einen neuen Verein.</p>'}
+      ${ui.foundClub ? `
+        <div class="disc-edit found-club">
+          <div class="disc-name">Neuen Verein gründen</div>
+          ${clubFields('fc', ui.clubForm)}
+          ${termsField('fc', ui.clubForm.accept)}
+          <div id="fc-error" class="error" hidden></div>
+          <div class="actions">
+            <button type="button" class="btn" id="fc-cancel">Abbrechen</button>
+            <button type="button" class="btn primary" id="fc-save">Verein gründen</button>
+          </div>
+        </div>` : `
+        <div class="field join-field">
+          <label for="join-code">${clubs.length ? 'Einem weiteren Verein beitreten' : 'Einem Verein beitreten'}</label>
+          <div class="join-row">
+            <input id="join-code" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="Vereinscode" maxlength="40">
+            <button type="button" class="btn" id="join-btn">Beitreten</button>
+          </div>
+        </div>
+        <button type="button" class="link-btn" id="found-club">+ Neuen Verein gründen</button>`}
+    </div>`;
+}
+
+function bindClubsCard() {
+  view.querySelectorAll('[data-share-club]').forEach(b => b.onclick = () => {
+    const id = b.dataset.shareClub;
+    const share = b.dataset.share === 'true';
+    if (share === sharesWith(id)) return;
+    state.shareWithClubs = { ...state.shareWithClubs, [id]: share };
+    // Ältere App-Versionen auf anderen Geräten kennen nur die allgemeine Einstellung
+    if (clubs.length === 1) state.shareWithClub = share;
+    state.settingsUpdatedAt = Date.now();
+    saveState();
+    render();
+    toast(share ? 'Vereinsanalyse akzeptiert' : 'Keine Daten mehr an diesen Verein');
+  });
+
+  view.querySelectorAll('[data-show-code]').forEach(b => b.onclick = () => showClubCode(clubById(b.dataset.showCode), false));
+
+  view.querySelectorAll('[data-leave]').forEach(b => b.onclick = async () => {
+    const c = clubById(b.dataset.leave);
+    if (!c) return;
+    if (!(await askConfirm(`„${c.name}“ verlassen?\n\nDer Verein sieht deine Ergebnisse danach nicht mehr. Sie bleiben in deinem Konto gesichert. Zurück kommst du nur mit dem Vereinscode.`, 'Verlassen'))) return;
+    if (!navigator.onLine) { toast('Keine Internetverbindung'); return; }
+    try {
+      await Cloud.leaveClub(c.id);
+      await refreshClubs();
+      render();
+      toast(`Du hast „${c.name}“ verlassen`);
+    } catch (e) { toast(Cloud.errorText(e)); }
+  });
+
+  const joinBtn = document.getElementById('join-btn');
+  if (joinBtn) {
+    const codeEl = document.getElementById('join-code');
+    codeEl.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); joinBtn.click(); } };
+    joinBtn.onclick = () => joinByCode(codeEl.value);
+    document.getElementById('found-club').onclick = () => { ui.foundClub = true; ui.clubForm = emptyClubForm(); render(); };
+    return;
+  }
+
+  const f = ui.clubForm;
+  view.querySelectorAll('.found-club input').forEach(el => {
+    el.oninput = el.onchange = () => { f[el.name] = el.type === 'checkbox' ? el.checked : el.value; };
+  });
+  document.getElementById('fc-cancel').onclick = () => { ui.foundClub = false; render(); };
+  document.getElementById('fc-save').onclick = async () => {
+    const errEl = document.getElementById('fc-error');
+    const fail = m => { errEl.hidden = false; errEl.textContent = m; };
+    const { club, error } = newClubFrom(f);
+    if (error) return fail(error);
+    if (!navigator.onLine) return fail('Keine Internetverbindung');
+    const btn = document.getElementById('fc-save');
+    btn.disabled = true;
+    try {
+      const id = await Cloud.createClub(club);
+      ui.foundClub = false;
+      await refreshClubs();
+      render();
+      const created = clubById(id);
+      if (created) showClubCode(created, true);
+    } catch (e) {
+      btn.disabled = false;
+      fail(Cloud.errorText(e));
+    }
+  };
+}
+
+// Mit Vereinscode beitreten; vorher zeigen, welcher Verein es ist
+async function joinByCode(code) {
+  code = String(code || '').trim();
+  if (!code) { toast('Bitte den Vereinscode eingeben'); return; }
+  if (!navigator.onLine) { toast('Keine Internetverbindung'); return; }
+  try {
+    const club = await Cloud.clubByCode(code);
+    if (!club) { toast('Der Vereinscode stimmt nicht'); return; }
+    if (clubById(club.id)) { toast(`Du bist schon in „${club.name}“`); return; }
+    const label = club.location ? `${club.name} (${club.location})` : club.name;
+    if (!(await askConfirm(`„${label}“ beitreten?\n\nErgebnisse, die du für diesen Verein einträgst, sieht der Vereins-Admin im Dashboard. Das kannst du unter Optionen bei „Vereinsanalyse akzeptieren“ jederzeit ändern.`, 'Beitreten'))) return;
+    await Cloud.joinClub(code);
+    await refreshClubs();
+    render();
+    toast(`Willkommen in „${club.name}“`);
+  } catch (e) { toast(Cloud.errorText(e)); }
 }
 
 // Aufklappbarer Bereich in den Optionen; beim Start der App sind alle zugeklappt
@@ -1798,11 +2122,27 @@ function download(filename, content, type) {
 
 // ---------- Anmeldung ----------
 
+const emptyAuthFields = () => ({ username: '', clubCode: '', password: '', password2: '', ...emptyClubForm() });
+
 const authUi = {
-  mode: 'login', // login | register
-  fields: { username: '', clubCode: '', password: '', password2: '' },
+  mode: 'login', // login | register | create (neuen Verein anlegen)
+  fields: emptyAuthFields(),
+  clubPreview: '', // Verein zum eingegebenen Code
   busy: false,
 };
+
+// Einladungslink aus dem QR-Code (…?verein=CODE): Code merken und aus der Adresse entfernen
+let inviteCode = (() => {
+  try {
+    const params = new URLSearchParams(location.search);
+    const code = params.get('verein');
+    if (!code) return null;
+    params.delete('verein');
+    const rest = params.toString();
+    history.replaceState(null, '', location.pathname + (rest ? '?' + rest : '') + location.hash);
+    return code.trim();
+  } catch (e) { return null; }
+})();
 
 function showLoggedOut(html) {
   document.body.classList.add('logged-out');
@@ -1836,16 +2176,26 @@ function renderAuth(message) {
   }
 
   const f = authUi.fields;
-  const reg = authUi.mode === 'register';
+  const mode = authUi.mode;
+  const reg = mode !== 'login'; // neues Konto (Registrieren oder Verein anlegen)
+  const create = mode === 'create';
+  const submitLabel = create ? 'Verein anlegen' : reg ? 'Konto anlegen' : 'Anmelden';
   showLoggedOut(`
     <div class="auth">
       ${authBrand()}
       <div class="card">
+        ${create ? `
+        <div class="auth-head">
+          <h2 style="margin:0">Neuen Verein anlegen</h2>
+          <button type="button" class="link-btn" data-mode="login">Zurück</button>
+        </div>
+        <p class="hint" style="margin:0 0 14px">Du legst den Verein an und wirst sein Admin. Danach bekommst du den Vereinscode für deine Mitglieder. Hot Shot ist kostenlos.</p>` : `
         <div class="segmented" role="tablist">
           <button type="button" role="tab" data-mode="login" aria-selected="${!reg}" class="${!reg ? 'active' : ''}">Anmelden</button>
           <button type="button" role="tab" data-mode="register" aria-selected="${reg}" class="${reg ? 'active' : ''}">Registrieren</button>
-        </div>
+        </div>`}
         <form id="auth-form" novalidate>
+          ${create ? `${clubFields('a', f)}<div class="label own-label">Dein Konto</div>` : ''}
           <div class="field">
             <label for="a-username">Benutzername</label>
             <input id="a-username" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" value="${esc(f.username)}" placeholder="${reg ? 'So erscheinst du in der Vereinsauswertung' : ''}" maxlength="30">
@@ -1858,25 +2208,40 @@ function renderAuth(message) {
           <div class="field">
             <label for="a-password2">Passwort wiederholen</label>
             ${passwordField('a-password2', 'password2', 'new-password', f.password2)}
-          </div>
+          </div>` : ''}
+          ${mode === 'register' ? `
           <div class="field">
             <label for="a-club">Vereinscode</label>
             <input id="a-club" name="clubCode" autocomplete="off" autocapitalize="characters" spellcheck="false" value="${esc(f.clubCode)}" placeholder="bekommst du vom Verein">
+            <p class="hint" id="club-preview" ${authUi.clubPreview ? '' : 'hidden'}>${esc(authUi.clubPreview)}</p>
           </div>` : ''}
+          ${create ? termsField('a', f.accept) : ''}
           <div id="auth-error" class="error" ${message ? '' : 'hidden'}>${esc(message || '')}</div>
           <div class="actions">
-            <button type="submit" class="btn primary" id="auth-submit" ${authUi.busy ? 'disabled' : ''}>${reg ? 'Konto anlegen' : 'Anmelden'}</button>
+            <button type="submit" class="btn primary" id="auth-submit" ${authUi.busy ? 'disabled' : ''}>${submitLabel}</button>
           </div>
         </form>
         ${!reg ? '<p class="hint" style="margin-top:14px">Passwort vergessen? Ein Admin deines Vereins kann es im Dashboard zurücksetzen.</p>' : ''}
       </div>
+      ${create ? '' : `
+      <div class="auth-create">
+        <p class="hint">Dein Verein nutzt Hot Shot noch nicht?</p>
+        <button type="button" class="btn block" data-mode="create">Neuen Verein anlegen</button>
+      </div>`}
+      ${legalLinks()}
     </div>`);
 
   view.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => {
     authUi.mode = b.dataset.mode;
     renderAuth();
+    window.scrollTo(0, 0);
   });
-  view.querySelectorAll('#auth-form input').forEach(el => el.oninput = () => { f[el.name] = el.value; });
+  view.querySelectorAll('#auth-form input').forEach(el => el.oninput = el.onchange = () => {
+    f[el.name] = el.type === 'checkbox' ? el.checked : el.value;
+  });
+  // Zum Vereinscode gleich anzeigen, welcher Verein es ist
+  const codeEl = document.getElementById('a-club');
+  if (codeEl) codeEl.onblur = () => showClubPreview(codeEl.value);
   // Auge: Passwort im Klartext zeigen bzw. wieder verbergen
   view.querySelectorAll('[data-pw-toggle]').forEach(b => b.onclick = () => {
     const input = document.getElementById(b.dataset.pwToggle);
@@ -1897,10 +2262,16 @@ function renderAuth(message) {
     const uErr = Cloud.usernameError(f.username);
     if (uErr) return fail(uErr);
     if (!f.password) return fail('Bitte ein Passwort eingeben');
+    let newClub = null;
+    if (create) {
+      const checked = newClubFrom(f);
+      if (checked.error) return fail(checked.error);
+      newClub = checked.club;
+    }
     if (reg) {
       if (f.password.length < 6) return fail('Das Passwort muss mindestens 6 Zeichen haben');
       if (f.password !== f.password2) return fail('Die Passwörter stimmen nicht überein');
-      if (!f.clubCode.trim()) return fail('Bitte den Vereinscode eingeben');
+      if (!create && !f.clubCode.trim()) return fail('Bitte den Vereinscode eingeben');
     }
     if (!navigator.onLine) return fail('Keine Internetverbindung');
 
@@ -1911,19 +2282,46 @@ function renderAuth(message) {
     try {
       const session = reg
         // Der Benutzername ist der einzige Name – er wird auch als Anzeigename gespeichert
-        ? await Cloud.signUp({ username: f.username, password: f.password, displayName: f.username.trim(), clubCode: f.clubCode.trim() })
+        ? await Cloud.signUp({ username: f.username, password: f.password, displayName: f.username.trim(), clubCode: f.clubCode.trim(), newClub })
         : await Cloud.signIn(f.username, f.password);
       authUi.busy = false;
-      authUi.fields = { username: '', clubCode: '', password: '', password2: '' };
+      authUi.fields = emptyAuthFields();
+      authUi.clubPreview = '';
+      authUi.mode = 'login';
       await startSession(session.user);
-      if (reg) toast('Willkommen bei Hot Shot!');
+      if (create) {
+        await refreshClubs();
+        const club = clubs.find(c => c.is_admin);
+        if (club) showClubCode(club, true);
+      } else if (reg) {
+        toast('Willkommen bei Hot Shot!');
+      }
+      // Einladungslink: beim Registrieren schon erledigt, beim Anmelden jetzt den Beitritt anbieten
+      if (reg) inviteCode = null; else offerInvite();
     } catch (err) {
       authUi.busy = false;
       btn.disabled = false;
-      btn.textContent = reg ? 'Konto anlegen' : 'Anmelden';
+      btn.textContent = submitLabel;
       fail(Cloud.errorText(err));
     }
   };
+}
+
+async function showClubPreview(code) {
+  const el = document.getElementById('club-preview');
+  if (!el) return;
+  code = code.trim();
+  let text = '';
+  if (code && navigator.onLine) {
+    try {
+      const club = await Cloud.clubByCode(code);
+      text = club ? `Verein: ${club.name}${club.location ? ` · ${club.location}` : ''}` : 'Zu diesem Code gibt es keinen Verein';
+    } catch (e) { text = ''; }
+  }
+  authUi.clubPreview = text;
+  if (!document.getElementById('club-preview')) return;
+  el.textContent = text;
+  el.hidden = !text;
 }
 
 const ICON_EYE = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
@@ -1936,6 +2334,12 @@ function passwordField(id, name, autocomplete, value) {
       <input id="${id}" name="${name}" type="password" autocomplete="${autocomplete}" value="${esc(value)}">
       <button type="button" class="pw-toggle" data-pw-toggle="${id}" aria-label="Passwort anzeigen" aria-pressed="false">${ICON_EYE}</button>
     </div>`;
+}
+
+// Links zu Impressum und Datenschutz (müssen von jeder Seite aus erreichbar sein)
+function legalLinks() {
+  const link = (file, label) => `<a href="${new URL('rechtliches/' + file, document.baseURI).href}" target="_blank" rel="noopener">${label}</a>`;
+  return `<p class="legal-links">${link('impressum.html', 'Impressum')} · ${link('datenschutz.html', 'Datenschutz')} · ${link('nutzungsbedingungen.html', 'Nutzungsbedingungen')}</p>`;
 }
 
 function authBrand() {
@@ -1964,14 +2368,25 @@ async function startSession(user, cached) {
   account = cached || accountFromUser(user);
   rememberAccount();
   state = loadState(account.userId);
+  const cachedClubs = readJSON(clubsKey(account.userId));
+  clubs = Array.isArray(cachedClubs) ? cachedClubs : [];
   sync.lastSync = null;
-  Object.assign(ui, { tab: 'entry', draft: null, editId: null, historyFilter: 'all', analysisDiscId: null, selectedPoint: null, editDiscId: null, adjustDisc: false, editCompId: null });
+  Object.assign(ui, { tab: 'entry', draft: null, editId: null, historyFilter: 'all', analysisDiscId: null, selectedPoint: null, editDiscId: null, adjustDisc: false, editCompId: null, foundClub: false });
   document.body.classList.remove('logged-out');
   setTab('entry');
   setSyncStatus(navigator.onLine ? 'idle' : 'offline');
   await offerLegacyImport();
   syncNow();
   refreshProfile();
+  refreshClubs();
+}
+
+// Angemeldet einen Einladungslink geöffnet: Beitritt anbieten
+async function offerInvite() {
+  if (!inviteCode || !account) return;
+  const code = inviteCode;
+  inviteCode = null;
+  await joinByCode(code);
 }
 
 // Anzeigename und Admin-Recht aus der Cloud holen
@@ -2026,10 +2441,13 @@ function endSession(message, keepData) {
       localStorage.removeItem(dirtyKey(account.userId));
       localStorage.removeItem(LAST_USER_KEY);
       localStorage.removeItem(lastDiscKey(account.userId));
+      localStorage.removeItem(clubsKey(account.userId));
+      localStorage.removeItem(lastClubKey(account.userId));
     } catch (e) { /* egal */ }
   }
   account = null;
   state = defaultState();
+  clubs = [];
   clearTimeout(sync.timer);
   renderAuth(message);
 }
@@ -2037,6 +2455,11 @@ function endSession(message, keepData) {
 // ---------- Start ----------
 
 async function boot() {
+  // Einladungslink ohne Anmeldung: gleich „Registrieren“ mit ausgefülltem Vereinscode
+  if (inviteCode) {
+    authUi.mode = 'register';
+    authUi.fields.clubCode = inviteCode;
+  }
   if (!Cloud.client) {
     // Offline beim Start ohne geladene Bibliothek: mit dem zuletzt angemeldeten Konto weiterarbeiten
     const last = readJSON(LAST_USER_KEY);
@@ -2057,7 +2480,9 @@ async function boot() {
     renderAuth(last && last.userId
       ? `Bitte erneut anmelden (${error ? Cloud.errorText(error) : 'keine gespeicherte Anmeldung gefunden'}).`
       : undefined);
+    if (inviteCode) showClubPreview(inviteCode);
   }
+  if (account) offerInvite();
 
   Cloud.client.auth.onAuthStateChange(event => {
     // Sitzung wurde ungültig (z. B. Passwort von einem Admin zurückgesetzt)

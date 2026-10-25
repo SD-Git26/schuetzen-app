@@ -1,0 +1,25 @@
+/* Rechtstexte (Nutzungsbedingungen, AV-Vertrag). Baut auf ../style.css auf. */
+
+.legal { max-width: 760px; margin: 0 auto; padding: 24px 16px 48px; line-height: 1.55; }
+.legal-brand { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; color: var(--text); text-decoration: none; font-weight: 700; }
+.legal-brand img { border-radius: 8px; }
+.legal h1 { font-size: 26px; margin: 0 0 4px; }
+.legal h2 { font-size: 18px; margin: 28px 0 8px; }
+.legal h3 { font-size: 16px; margin: 18px 0 6px; }
+.legal p, .legal li { font-size: 15px; }
+.legal ol, .legal ul { padding-left: 22px; }
+.legal li + li { margin-top: 4px; }
+.legal .stand { color: var(--text-muted); font-size: 14px; margin: 0 0 20px; }
+.legal .note { padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); font-size: 14px; }
+.legal table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.legal th, .legal td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+.legal th { color: var(--text-muted); font-weight: 600; }
+.legal a { color: var(--accent); }
+/* Noch auszufüllende Angaben – müssen vor der Veröffentlichung ersetzt werden */
+.legal mark.todo { background: #ffd54a; color: #1b1108; padding: 0 3px; border-radius: 3px; }
+.table-scroll { overflow-x: auto; }
+
+@media print {
+  .legal-brand, .legal .note { display: none; }
+  .legal { padding: 0; }
+}

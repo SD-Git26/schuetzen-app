@@ -9,8 +9,13 @@ const CAT_COLORS = 6;
 const PERIODS = [['3m', '3 Monate', 3, '3 M'], ['6m', '6 Monate', 6, '6 M'], ['1y', '12 Monate', 12, '12 M'], ['year', 'Dieses Jahr', null, 'Jahr'], ['all', 'Alles', null, 'Alles']];
 const KINDS = [['all', 'Alle'], ['training', 'Training'], ['competition', 'Wettkampf']];
 
+// Zuletzt gewählter Verein (für Admins mehrerer Vereine)
+const CLUB_KEY = 'hotshot-dash-club-id';
+
 const dash = {
-  me: null,          // eigenes Profil
+  me: null,          // eigenes Profil (is_operator = Betreiber von Hot Shot)
+  clubs: [],         // eigene Vereine aus my_clubs()
+  clubId: null,      // gerade angezeigter Verein (nur Vereine, in denen man Admin ist)
   clubName: '',
   members: [],       // { id, username, displayName, isAdmin, createdAt, color, total, lastDate }
   results: [],       // alle Ergebnisse aller Mitglieder, flach
@@ -130,13 +135,26 @@ function download(filename, content, type) {
 
 // ---------- Kopfzeile ----------
 
+// Vereine, deren Dashboard man öffnen darf
+const adminClubs = () => dash.clubs.filter(c => c.is_admin && c.status === 'active');
+const isOperator = () => !!(dash.me && dash.me.is_operator);
+
 function renderHeader() {
-  document.getElementById('club-name').textContent = dash.clubName ? `· ${dash.clubName}` : 'Vereins-Dashboard';
+  const admin = adminClubs();
+  const sw = document.getElementById('club-switch');
+  sw.hidden = !dash.me || admin.length < 2;
+  sw.innerHTML = admin.map(c => `<option value="${c.id}" ${c.id === dash.clubId ? 'selected' : ''}>${esc(c.name)}</option>`).join('');
+  const nameEl = document.getElementById('club-name');
+  nameEl.hidden = !sw.hidden;
+  nameEl.textContent = dash.clubName ? `· ${dash.clubName}` : dash.view === 'operator' ? '· Betreiber' : 'Vereins-Dashboard';
   // Vereinsname merken: Vor der Anmeldung gibt die Cloud ihn nicht heraus, der Login-Bildschirm zeigt ihn trotzdem
   if (dash.clubName) try { localStorage.setItem('hotshot-dash-club', dash.clubName); } catch (e) { /* dann nur „Dashboard“ */ }
   const nav = document.getElementById('dash-nav');
-  nav.hidden = !(dash.me && dash.me.is_admin);
-  nav.querySelectorAll('[data-view]').forEach(b => b.classList.toggle('active', b.dataset.view === dash.view));
+  nav.hidden = !(dash.me && (dash.clubId || isOperator()));
+  nav.querySelectorAll('[data-view]').forEach(b => {
+    b.hidden = b.dataset.view === 'operator' ? !isOperator() : !dash.clubId;
+    b.classList.toggle('active', b.dataset.view === dash.view);
+  });
   document.body.classList.toggle('has-nav', !nav.hidden);
   // Abgemeldet: keine Kopfleiste, Logo steht mittig über dem Anmeldefeld (wie in der App)
   document.body.classList.toggle('signed-out', !dash.me);
@@ -149,7 +167,22 @@ document.querySelectorAll('#dash-nav [data-view]').forEach(b => b.onclick = () =
   window.scrollTo(0, 0);
 });
 
+// Anderen Verein anzeigen: Auswahl und Vergleich beginnen neu
+document.getElementById('club-switch').onchange = async e => {
+  dash.clubId = e.target.value;
+  try { localStorage.setItem(CLUB_KEY, dash.clubId); } catch (err) { /* dann nur bis zum Neuladen */ }
+  Object.assign(dash, { disc: null, compare: [], compareInit: false, sig: null });
+  if (dash.view === 'operator') dash.view = 'ranking';
+  try { await loadAll(dash.me.id); } catch (err) { toast(Cloud.errorText(err)); }
+};
+
 // ---------- Anmeldung ----------
+
+// Links zu Impressum und Datenschutz (müssen von jeder Seite aus erreichbar sein)
+function legalLinks() {
+  const link = (file, label) => `<a href="${new URL('../rechtliches/' + file, document.baseURI).href}" target="_blank" rel="noopener">${label}</a>`;
+  return `<p class="legal-links">${link('impressum.html', 'Impressum')} · ${link('datenschutz.html', 'Datenschutz')} · ${link('nutzungsbedingungen.html', 'Nutzungsbedingungen')} · ${link('av-vertrag.html', 'AV-Vertrag')}</p>`;
+}
 
 function loginBrand() {
   let club = '';
@@ -173,7 +206,7 @@ function renderLogin(message) {
   app.innerHTML = `<div class="dash-center">${loginBrand()}
     <form class="card" id="login-form" novalidate>
       <h2>Anmelden</h2>
-      <p class="hint" style="margin:-6px 0 16px">Das Dashboard ist nur für Admins des Vereins. Melde dich mit deinem Hot-Shot-Konto an.</p>
+      <p class="hint" style="margin:-6px 0 16px">Das Dashboard ist für die Admins eines Vereins. Melde dich mit deinem Hot-Shot-Konto an.</p>
       <div class="field">
         <label for="l-user">Benutzername</label>
         <input id="l-user" autocomplete="username" autocapitalize="none" spellcheck="false">
@@ -184,7 +217,7 @@ function renderLogin(message) {
       </div>
       <div class="error" id="l-error" ${message ? '' : 'hidden'}>${esc(message || '')}</div>
       <div class="actions"><button class="btn primary" type="submit" id="l-submit">Anmelden</button></div>
-    </form></div>`;
+    </form>${legalLinks()}</div>`;
   const form = document.getElementById('login-form');
   const errEl = document.getElementById('l-error');
   document.getElementById('l-user').focus();
@@ -206,8 +239,17 @@ function renderLogin(message) {
 function renderNoAccess() {
   app.innerHTML = `<div class="dash-center card">
     <h2>Kein Zugriff</h2>
-    <p class="hint">Das Konto „${esc(dash.me.username)}“ ist kein Admin. Ein Admin des Vereins kann dich im Dashboard unter „Mitglieder“ dazu machen.</p>
+    <p class="hint">Das Konto „${esc(dash.me.username)}“ ist in keinem Verein Admin. Ein Admin deines Vereins kann dich im Dashboard unter „Mitglieder“ dazu machen.</p>
+    <div class="actions"><button type="button" class="btn" id="na-logout">Abmelden</button></div>
   </div>`;
+  document.getElementById('na-logout').onclick = logoutDash;
+}
+
+async function logoutDash() {
+  await Cloud.signOut();
+  Object.assign(dash, { me: null, clubs: [], clubId: null, clubName: '', sig: null, view: 'ranking' });
+  renderHeader();
+  renderLogin();
 }
 
 // ---------- Daten laden ----------
@@ -215,27 +257,34 @@ function renderNoAccess() {
 // silent: Hintergrund-Aktualisierung ohne Ladeanzeige; neu gezeichnet wird nur, wenn sich etwas geändert hat
 async function loadAll(userId, { silent = false } = {}) {
   if (!silent) app.innerHTML = '<div class="card empty">Daten werden geladen …</div>';
-  const db = Cloud.client;
-  const me = await Cloud.getProfile(userId);
+  const [me, clubs] = await Promise.all([Cloud.getProfile(userId), Cloud.myClubs()]);
   if (!me) throw new Error('Profil nicht gefunden');
-  const roleChanged = !dash.me || dash.me.is_admin !== me.is_admin;
+  const accessBefore = JSON.stringify([dash.me && dash.me.is_operator, adminClubs()]);
   dash.me = me;
-  if (!silent || roleChanged) renderHeader();
-  if (!dash.me.is_admin) { renderNoAccess(); return; }
+  dash.clubs = clubs;
+  const admin = adminClubs();
+  if (!admin.some(c => c.id === dash.clubId)) {
+    let saved = null;
+    try { saved = localStorage.getItem(CLUB_KEY); } catch (e) { /* kein Speicher */ }
+    dash.clubId = (admin.find(c => c.id === saved) || admin[0] || { id: null }).id;
+    dash.sig = null;
+  }
+  const club = admin.find(c => c.id === dash.clubId);
+  dash.clubName = club ? club.name : '';
+  // Nur Betreiber, in keinem Verein Admin: gleich die Betreiber-Seite
+  if (!dash.clubId && isOperator()) dash.view = 'operator';
+  const accessChanged = accessBefore !== JSON.stringify([me.is_operator, admin]);
+  if (!silent || accessChanged) renderHeader();
+  if (!dash.clubId && !isOperator()) { renderNoAccess(); return; }
 
-  const [profiles, states, club] = await Promise.all([
-    db.from('profiles').select('*').order('username'),
-    db.from('user_state').select('user_id, state, updated_at'),
-    db.from('club_settings').select('club_name').eq('id', 1).maybeSingle(),
-  ]);
-  for (const r of [profiles, states, club]) if (r.error) throw r.error;
-
-  const sig = JSON.stringify([profiles.data, states.data.map(s => [s.user_id, s.updated_at]), club.data]);
-  dash.loadedAt = new Date();
-  if (silent && sig === dash.sig) return;
-  dash.sig = sig;
-  dash.clubName = club.data ? club.data.club_name : '';
-  buildData(profiles.data, states.data);
+  if (dash.clubId) {
+    const members = await Cloud.call('admin_club_members', { club: dash.clubId });
+    const sig = JSON.stringify([dash.clubId, dash.clubName, members.map(m => [m.user_id, m.username, m.is_admin, m.updated_at])]);
+    dash.loadedAt = new Date();
+    if (silent && sig === dash.sig && !accessChanged) return;
+    dash.sig = sig;
+    buildData(members);
+  }
   renderHeader();
   render();
 }
@@ -258,25 +307,26 @@ async function refresh(manual) {
 // Automatisch abgleichen: jede Minute, solange die Seite sichtbar ist, und beim Zurückkehren zur Seite.
 // Nicht, während ein Dialog offen ist oder jemand im Bereich „Optionen“ gerade Eingaben macht.
 function autoRefreshAllowed() {
-  return dash.me && dash.me.is_admin && document.visibilityState === 'visible'
-    && !document.querySelector('dialog[open]') && dash.view !== 'club';
+  return dash.me && dash.clubId && document.visibilityState === 'visible'
+    && !document.querySelector('dialog[open]') && dash.view !== 'club' && dash.view !== 'operator';
 }
 setInterval(() => { if (autoRefreshAllowed()) refresh(false); }, 60000);
 document.addEventListener('visibilitychange', () => { if (autoRefreshAllowed()) refresh(false); });
 
 // Ergebnisse aller Mitglieder zusammenführen. Disziplinen werden über den Namen zugeordnet,
-// weil jedes Mitglied seine Disziplinen selbst verwaltet.
-function buildData(profiles, states) {
-  const stateOf = Object.fromEntries(states.map(s => [s.user_id, s.state]));
+// weil jedes Mitglied seine Disziplinen selbst verwaltet. Die Datenbank liefert je Mitglied
+// nur die Ergebnisse für diesen Verein (und nur mit Zustimmung zur Vereinsanalyse).
+function buildData(rows) {
+  const stateOf = Object.fromEntries(rows.map(p => [p.user_id, p.state]));
   const results = [];
   const discs = new Map();
 
-  dash.members = profiles.map(p => ({
-    id: p.id,
+  dash.members = rows.map(p => ({
+    id: p.user_id,
     username: p.username,
     displayName: p.username, // im Dashboard erscheint nur der Benutzername, kein echter Name
     isAdmin: p.is_admin,
-    createdAt: p.created_at,
+    createdAt: p.joined_at,
     ageClassId: (stateOf[p.id] && stateOf[p.id].shareWithClub !== false && ageClassById(stateOf[p.id].ageClassId)) ? ageClassById(stateOf[p.id].ageClassId).id : null,
     total: 0,
     lastDate: null,
@@ -377,7 +427,9 @@ function colorOf(memberId) {
 // ---------- Darstellung ----------
 
 function render() {
-  if (!dash.me || !dash.me.is_admin) return;
+  if (!dash.me) return;
+  if (dash.view === 'operator') { if (isOperator()) renderOperator(); return; }
+  if (!dash.clubId) return;
   ({ ranking: renderRanking, compare: renderCompare, members: renderMembers, club: renderClub })[dash.view]();
 }
 
@@ -820,17 +872,17 @@ function renderMembers() {
       <td class="num">
         <button class="btn small" data-admin="${m.id}">${m.isAdmin ? 'Admin entziehen' : 'Zum Admin machen'}</button>
         <button class="btn small" data-reset="${m.id}">Passwort zurücksetzen</button>
-        ${m.id === dash.me.id ? '' : `<button class="btn small danger" data-delete="${m.id}">Löschen</button>`}
+        ${m.id === dash.me.id ? '' : `<button class="btn small danger" data-remove="${m.id}">Entfernen</button>`}
       </td>
     </tr>`).join('');
 
   app.innerHTML = `
     <div class="card">
       <div class="card-head"><h2>Mitglieder (${dash.members.length})</h2></div>
-      <p class="hint" style="margin:-4px 0 10px">Neue Mitglieder registrieren sich selbst in der App mit dem Vereinscode (siehe „Optionen“).</p>
+      <p class="hint" style="margin:-4px 0 10px">Neue Mitglieder registrieren sich selbst in der App mit dem Vereinscode (siehe „Optionen“). „Ergebnisse“ zählt nur, was für diesen Verein eingetragen und freigegeben ist.</p>
       <div class="table-wrap">
         <table class="data">
-          <thead><tr><th>Name</th><th>Registriert</th><th class="num">Ergebnisse</th><th class="num">Letzter Eintrag</th><th>Rolle</th><th class="num">Aktionen</th></tr></thead>
+          <thead><tr><th>Name</th><th>Beigetreten</th><th class="num">Ergebnisse</th><th class="num">Letzter Eintrag</th><th>Rolle</th><th class="num">Aktionen</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
       </div>
@@ -838,7 +890,7 @@ function renderMembers() {
 
   const rpc = async (fn, args, ok) => {
     const { error } = await Cloud.client.rpc(fn, args);
-    if (error) { toast(error.message); return false; }
+    if (error) { toast(Cloud.errorText(error)); return false; }
     toast(ok);
     return true;
   };
@@ -847,7 +899,7 @@ function renderMembers() {
     const m = memberById(b.dataset.admin);
     const value = !m.isAdmin;
     if (!value && m.id === dash.me.id && !(await dialog('Dir selbst die Admin-Rechte entziehen?\n\nDu kannst das Dashboard danach nicht mehr öffnen.', 'Entziehen', { danger: true }))) return;
-    if (await rpc('admin_set_admin', { target: m.id, value }, value ? `${m.displayName} ist jetzt Admin` : `${m.displayName} ist kein Admin mehr`)) {
+    if (await rpc('admin_set_admin', { club: dash.clubId, target: m.id, value }, value ? `${m.displayName} ist jetzt Admin` : `${m.displayName} ist kein Admin mehr`)) {
       await loadAll(dash.me.id);
     }
   });
@@ -857,14 +909,14 @@ function renderMembers() {
     const pw = await dialog(`Neues Passwort für ${m.displayName}\n\nMindestens 6 Zeichen. Teile es dem Mitglied persönlich mit.`, 'Passwort setzen', { input: true });
     if (pw === null) return;
     if (pw.length < 6) { toast('Das Passwort muss mindestens 6 Zeichen haben'); return; }
-    await rpc('admin_reset_password', { target: m.id, new_password: pw }, 'Passwort geändert');
+    await rpc('admin_reset_password', { club: dash.clubId, target: m.id, new_password: pw }, 'Passwort geändert');
   });
 
-  app.querySelectorAll('[data-delete]').forEach(b => b.onclick = async () => {
-    const m = memberById(b.dataset.delete);
-    const ok = await dialog(`${m.displayName} löschen?\n\nDas Konto und alle ${m.total} Ergebnisse werden endgültig gelöscht. Das lässt sich nicht rückgängig machen.`, 'Endgültig löschen', { danger: true });
+  app.querySelectorAll('[data-remove]').forEach(b => b.onclick = async () => {
+    const m = memberById(b.dataset.remove);
+    const ok = await dialog(`${m.displayName} aus dem Verein entfernen?\n\nDas Mitglied gehört danach nicht mehr zum Verein und taucht hier nicht mehr auf. Sein Konto und seine eigenen Ergebnisse bleiben erhalten. Mit dem Vereinscode kann es wieder beitreten – ändere den Code bei Bedarf unter „Optionen“.`, 'Entfernen', { danger: true });
     if (!ok) return;
-    if (await rpc('admin_delete_member', { target: m.id }, `${m.displayName} wurde gelöscht`)) {
+    if (await rpc('admin_remove_member', { club: dash.clubId, target: m.id }, `${m.displayName} wurde entfernt`)) {
       dash.compare = dash.compare.filter(id => id !== m.id);
       await loadAll(dash.me.id);
     }
@@ -896,12 +948,35 @@ async function renderClub() {
           <input id="c-name" value="${esc(dash.clubName)}" maxlength="80">
         </div>
         <div class="field">
-          <label for="c-code">Vereinscode</label>
-          <input id="c-code" value="" placeholder="wird geladen …" autocomplete="off" spellcheck="false" maxlength="40">
+          <label for="c-location">Ort <span class="optional">(freiwillig)</span></label>
+          <input id="c-location" value="" maxlength="80">
+        </div>
+        <div class="field">
+          <label for="c-contact">Ansprechpartner</label>
+          <input id="c-contact" value="" maxlength="80" autocomplete="name">
+        </div>
+        <div class="field">
+          <label for="c-email">Kontakt-E-Mail</label>
+          <input id="c-email" type="email" value="" maxlength="254" autocomplete="email">
         </div>
       </div>
-      <p class="hint">Mit dem Vereinscode können sich neue Mitglieder in der App registrieren. Ändere ihn, wenn er in falsche Hände geraten ist – bestehende Konten bleiben gültig.</p>
+      <p class="hint">Ansprechpartner und E-Mail sieht nur der Betreiber von Hot Shot, z. B. für Rückfragen.</p>
       <div class="actions"><button class="btn primary" id="c-save">Speichern</button></div>`)}
+    ${collapsible('code', 'Vereinscode', `
+      <div class="code-layout">
+        <div>
+          <div class="field">
+            <label for="c-code">Vereinscode</label>
+            <input id="c-code" class="code-input" value="" placeholder="wird geladen …" autocomplete="off" spellcheck="false" maxlength="30">
+          </div>
+          <p class="hint">Mit dem Vereinscode oder dem QR-Code registrieren sich neue Mitglieder in der App. Ändere ihn, wenn er in falsche Hände geraten ist – bestehende Mitglieder bleiben im Verein.</p>
+          <div class="actions">
+            <button class="btn primary" id="c-code-save">Code speichern</button>
+            <button class="btn" id="c-code-new">Neuen Code erzeugen</button>
+          </div>
+        </div>
+        <div class="qr-box" id="c-qr" aria-label="QR-Code zum Beitreten"></div>
+      </div>`)}
     ${collapsible('export', 'Export', `
       <p class="hint" style="margin:0 0 12px">Alle Ergebnisse aller Mitglieder als CSV-Datei (z. B. für Excel).</p>
       <div class="actions" style="margin-top:0"><button class="btn" id="c-csv">Alle Ergebnisse exportieren</button></div>`)}
@@ -914,7 +989,8 @@ async function renderClub() {
         <button type="button" class="btn" id="theme-toggle">${theme === 'dark' ? 'Hell' : 'Dunkel'}</button>
         <button type="button" class="btn" id="logout">Abmelden</button>
       </div>
-    </div>`;
+    </div>
+    <div class="narrow">${legalLinks()}</div>`;
 
   app.querySelectorAll('[data-section]').forEach(b => b.onclick = () => {
     const key = b.dataset.section;
@@ -929,30 +1005,69 @@ async function renderClub() {
     document.documentElement.dataset.theme = next;
     document.getElementById('theme-toggle').textContent = next === 'dark' ? 'Hell' : 'Dunkel';
   };
-  document.getElementById('logout').onclick = async () => {
-    await Cloud.signOut();
-    dash.me = null;
-    renderHeader();
-    renderLogin();
-  };
+  document.getElementById('logout').onclick = logoutDash;
   document.getElementById('c-csv').onclick = exportAllCsv;
 
+  const club = dash.clubId;
   const codeEl = document.getElementById('c-code');
-  const { data: code, error } = await Cloud.client.rpc('admin_get_club_code');
-  if (dash.view !== 'club') return;
-  codeEl.value = error ? '' : code;
-  codeEl.placeholder = error ? 'konnte nicht geladen werden' : '';
+  let info = null;
+  try { info = (await Cloud.call('admin_get_club', { club }))[0]; } catch (e) { /* unten Hinweis */ }
+  if (dash.view !== 'club' || dash.clubId !== club) return;
+  if (!info) { codeEl.placeholder = 'konnte nicht geladen werden'; return; }
+  document.getElementById('c-name').value = info.name;
+  document.getElementById('c-location').value = info.location || '';
+  document.getElementById('c-contact').value = info.contact_name || '';
+  document.getElementById('c-email').value = info.contact_email || '';
+  const showCode = code => { codeEl.value = code; codeEl.placeholder = ''; drawQr(document.getElementById('c-qr'), inviteLink(code)); };
+  showCode(info.code);
 
   document.getElementById('c-save').onclick = async () => {
-    const name = document.getElementById('c-name').value.trim();
-    const newCode = codeEl.value.trim();
-    if (!name || newCode.length < 4) { toast('Bitte Vereinsname und einen Code mit mindestens 4 Zeichen eingeben'); return; }
-    const res = await Cloud.client.from('club_settings').update({ club_name: name, club_code: newCode }).eq('id', 1);
-    if (res.error) { toast(res.error.message); return; }
-    dash.clubName = name;
-    renderHeader();
-    toast('Gespeichert');
+    const val = id => document.getElementById(id).value.trim();
+    try {
+      await Cloud.call('admin_update_club', { club, new_name: val('c-name'), new_location: val('c-location'), new_contact_name: val('c-contact'), new_contact_email: val('c-email') });
+      await loadAll(dash.me.id, { silent: true });
+      renderHeader();
+      toast('Gespeichert');
+    } catch (e) { toast(Cloud.errorText(e)); }
   };
+  document.getElementById('c-code-save').onclick = async () => {
+    try {
+      showCode(await Cloud.call('admin_set_club_code', { club, new_code: codeEl.value }));
+      toast('Vereinscode gespeichert');
+    } catch (e) { toast(Cloud.errorText(e)); }
+  };
+  document.getElementById('c-code-new').onclick = async () => {
+    if (!(await dialog('Neuen Vereinscode erzeugen?\n\nDer bisherige Code und alte QR-Code-Aushänge funktionieren danach nicht mehr. Bestehende Mitglieder bleiben im Verein.', 'Neuen Code erzeugen'))) return;
+    try {
+      showCode(await Cloud.call('admin_new_club_code', { club }));
+      toast('Neuer Vereinscode erzeugt');
+    } catch (e) { toast(Cloud.errorText(e)); }
+  };
+}
+
+// Link zum Beitreten: öffnet die App mit ausgefülltem Vereinscode
+function inviteLink(code) {
+  return new URL('../?verein=' + encodeURIComponent(code), document.baseURI).href;
+}
+
+const QR_LIB = 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js';
+let qrLibLoading = null;
+function drawQr(box, text) {
+  if (!qrLibLoading) {
+    qrLibLoading = new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = QR_LIB;
+      s.onload = resolve;
+      s.onerror = () => { qrLibLoading = null; reject(new Error('QR')); };
+      document.head.appendChild(s);
+    });
+  }
+  qrLibLoading.then(() => {
+    const qr = window.qrcode(0, 'M');
+    qr.addData(text);
+    qr.make();
+    box.innerHTML = qr.createSvgTag({ cellSize: 4, margin: 2, scalable: true });
+  }).catch(() => { box.hidden = true; });
 }
 
 function exportAllCsv() {
@@ -972,6 +1087,102 @@ function exportAllCsv() {
     lines.push(row.map(cell).join(';'));
   }
   download(`hotshot-verein-${isoOf(new Date())}.csv`, '﻿' + lines.join('\r\n'), 'text/csv');
+}
+
+// ----- Betreiber -----
+// Übersicht aller Vereine für den Betreiber von Hot Shot. Ergebnisse von Mitgliedern sind hier nie zu sehen.
+
+async function renderOperator() {
+  if (!app.querySelector('.operator')) app.innerHTML = '<div class="card empty">Vereine werden geladen …</div>';
+  let list;
+  try { list = await Cloud.call('operator_clubs'); } catch (e) {
+    app.innerHTML = `<div class="card empty">${esc(Cloud.errorText(e))}</div>`;
+    return;
+  }
+  if (dash.view !== 'operator') return;
+  const fresh = list.filter(c => !c.operator_seen).length;
+  const members = list.reduce((n, c) => n + Number(c.member_count), 0);
+  const rows = list.map(c => `
+    <tr>
+      <td><div>${esc(c.name)}${c.operator_seen ? '' : ' <span class="badge">neu</span>'}</div>${c.location ? `<div class="dash-meta">${esc(c.location)}</div>` : ''}</td>
+      <td>${esc(c.contact_name || '–')}${c.contact_email ? `<div class="dash-meta"><a href="mailto:${esc(c.contact_email)}">${esc(c.contact_email)}</a></div>` : ''}</td>
+      <td><span class="club-code">${esc(c.code)}</span></td>
+      <td class="num">${c.member_count}</td>
+      <td>${esc(c.admins || '–')}</td>
+      <td>${fmtDate(c.created_at)}</td>
+      <td>${c.status === 'locked' ? '<span class="delta neg">gesperrt</span>' : 'aktiv'}</td>
+      <td class="num">
+        ${c.operator_seen ? '' : `<button class="btn small" data-op-seen="${c.id}">Gesehen</button>`}
+        <button class="btn small" data-op-lock="${c.id}">${c.status === 'locked' ? 'Entsperren' : 'Sperren'}</button>
+        <button class="btn small danger" data-op-delete="${c.id}">Löschen</button>
+      </td>
+    </tr>`).join('');
+
+  app.innerHTML = `
+    <div class="operator">
+      <div class="card">
+        <div class="card-head"><h2>Vereine (${list.length})</h2></div>
+        <p class="hint" style="margin:-4px 0 10px">${members} Mitgliedschaften insgesamt${fresh ? ` · ${fresh} neue ${fresh === 1 ? 'Verein' : 'Vereine'} seit dem letzten Ansehen` : ''}. Ergebnisse der Mitglieder sind hier bewusst nicht zu sehen.</p>
+        <div class="table-wrap">
+          <table class="data">
+            <thead><tr><th>Verein</th><th>Ansprechpartner</th><th>Code</th><th class="num">Mitglieder</th><th>Admins</th><th>Angelegt</th><th>Status</th><th class="num">Aktionen</th></tr></thead>
+            <tbody>${rows || '<tr><td colspan="8" class="dash-meta">Noch keine Vereine.</td></tr>'}</tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card narrow">
+        <h2>Hilfe für Vereine</h2>
+        <p class="hint" style="margin:-4px 0 14px">Für Fälle, die ein Vereins-Admin nicht selbst lösen kann – z. B. ein Mitglied in mehreren Vereinen hat sein Passwort vergessen, oder ein Verein hat keinen Admin mehr.</p>
+        <div class="form-grid">
+          <div class="field">
+            <label for="op-user">Benutzername</label>
+            <input id="op-user" autocomplete="off" autocapitalize="none" spellcheck="false">
+          </div>
+          <div class="field">
+            <label for="op-club">Verein</label>
+            <select id="op-club">${list.map(c => `<option value="${c.id}">${esc(c.name)}${c.location ? ` (${esc(c.location)})` : ''}</option>`).join('')}</select>
+          </div>
+        </div>
+        <div class="actions">
+          <button class="btn" id="op-reset">Passwort zurücksetzen</button>
+          <button class="btn" id="op-admin">Im gewählten Verein zum Admin machen</button>
+        </div>
+      </div>
+    </div>`;
+
+  const byId = id => list.find(c => c.id === id);
+  const act = async (fn, args, ok) => {
+    try { await Cloud.call(fn, args); toast(ok); renderOperator(); } catch (e) { toast(Cloud.errorText(e)); }
+  };
+  app.querySelectorAll('[data-op-seen]').forEach(b => b.onclick = () => {
+    const c = byId(b.dataset.opSeen);
+    act('operator_update_club', { club: c.id, new_status: c.status, seen: true }, 'Als gesehen markiert');
+  });
+  app.querySelectorAll('[data-op-lock]').forEach(b => b.onclick = async () => {
+    const c = byId(b.dataset.opLock);
+    const lock = c.status !== 'locked';
+    if (lock && !(await dialog(`„${c.name}“ sperren?\n\nDie Admins kommen nicht mehr ins Dashboard und niemand kann mehr mit dem Vereinscode beitreten. Die Mitglieder können die App weiter benutzen.`, 'Sperren', { danger: true }))) return;
+    act('operator_update_club', { club: c.id, new_status: lock ? 'locked' : 'active', seen: true }, lock ? 'Verein gesperrt' : 'Verein entsperrt');
+  });
+  app.querySelectorAll('[data-op-delete]').forEach(b => b.onclick = async () => {
+    const c = byId(b.dataset.opDelete);
+    const typed = await dialog(`„${c.name}“ endgültig löschen?\n\nDer Verein und alle Mitgliedschaften werden gelöscht. Die Konten der Mitglieder und ihre eigenen Ergebnisse bleiben erhalten.\n\nZum Bestätigen den Vereinsnamen eintippen:`, 'Endgültig löschen', { input: true, danger: true });
+    if (typed === null) return;
+    if (typed.trim() !== c.name) { toast('Der Name stimmt nicht – nichts gelöscht'); return; }
+    act('operator_delete_club', { club: c.id }, 'Verein gelöscht');
+  });
+  const user = () => document.getElementById('op-user').value.trim();
+  document.getElementById('op-reset').onclick = async () => {
+    if (!user()) { toast('Bitte einen Benutzernamen eingeben'); return; }
+    const pw = await dialog(`Neues Passwort für ${user()}\n\nMindestens 6 Zeichen. Teile es der Person persönlich mit.`, 'Passwort setzen', { input: true });
+    if (pw === null) return;
+    act('operator_reset_password', { target_username: user(), new_password: pw }, 'Passwort geändert');
+  };
+  document.getElementById('op-admin').onclick = () => {
+    if (!user()) { toast('Bitte einen Benutzernamen eingeben'); return; }
+    const club = document.getElementById('op-club').value;
+    act('operator_set_admin', { club, target_username: user(), value: true }, `${user()} ist jetzt Admin`);
+  };
 }
 
 // ---------- Start ----------
