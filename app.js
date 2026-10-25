@@ -79,6 +79,9 @@ function normalizeState(s) {
   // Gelöschte IDs mit Zeitpunkt, damit das Löschen auch auf anderen Geräten ankommt
   if (!s.deleted || typeof s.deleted !== 'object') s.deleted = {};
   if (typeof s.settingsUpdatedAt !== 'number') s.settingsUpdatedAt = 0;
+  // Gewählte Disziplin-Liste (Optionen): genau eine, DSB oder BDS; ohne Angabe (ältere Stände) DSB
+  const set = Array.isArray(s.disciplineSets) && DISCIPLINE_SETS.find(x => s.disciplineSets.includes(x.id));
+  s.disciplineSets = [set ? set.id : 'dsb'];
   // Entfallene Altersklassen durch ihren Ersatz ersetzen
   // Freigabe für das Vereins-Dashboard; ohne Angabe (ältere Stände) gilt sie als erteilt
   if (typeof s.shareWithClub !== 'boolean') s.shareWithClub = true;
@@ -124,6 +127,7 @@ function mergeStates(a, b) {
     deleted,
     defaultDisciplineId: newer.defaultDisciplineId,
     ageClassId: newer.ageClassId,
+    disciplineSets: newer.disciplineSets,
     shareWithClub: newer.shareWithClub,
     shareWithClubs: newer.shareWithClubs,
     activeClubId: newer.activeClubId,
@@ -1055,16 +1059,19 @@ function renderEntry() {
 }
 
 // Einträge der Disziplin-Auswahl: eigene Disziplinen zuerst, dann die DSB/RSB-Liste
-function discChoices() {
+function discChoices(currentId) {
   const own = state.disciplines.filter(d => !isCatalogId(d.id))
     .map(d => ({ id: d.id, code: '', title: d.name, name: d.name, meta: '', group: 'Eigene Disziplinen' }));
-  const catalog = DISCIPLINE_CATALOG.map(c => ({
+  // Nur die unter Optionen gewählten Listen; die aktuell gewählte Disziplin bleibt immer drin
+  const catalog = DISCIPLINE_CATALOG.filter(c => state.disciplineSets.includes(c.set) || c.id === currentId).map(c => ({
     id: c.id,
     code: c.code,
     title: c.title,
     name: c.name,
     meta: [c.distance, c.caliber, `${c.series * c.shots} ${c.hits && !c.code.startsWith('8.') ? 'Scheiben' : 'Schuss'}`, c.source === 'RSB' ? 'RSB Liste B' : ''].filter(Boolean).join(' · '),
     group: c.group,
+    // BDS: Disziplin steht nur in der Gruppe, soll beim Tippen (z. B. „speed“) aber gefunden werden
+    search: c.set === 'bds' ? c.group : '',
   }));
   return own.concat(catalog);
 }
@@ -1072,14 +1079,14 @@ function discChoices() {
 // Disziplin-Auswahl zum Aufklappen und Tippen: „2.11“ springt auf genau diese Kennzahl,
 // ein Wortteil wie „auflage“ filtert die Liste. Übernommen wird per Antippen oder Enter.
 function bindDiscCombo(input, list, current, onPick) {
-  const choices = discChoices();
+  const choices = discChoices(current.id);
   let shown = [];
   let active = -1;
   const norm = s => s.trim().toLowerCase().replace(',', '.');
 
   function draw(query) {
     const q = norm(query);
-    shown = q ? choices.filter(c => c.code.toLowerCase().startsWith(q) || `${c.title} ${c.meta}`.toLowerCase().includes(q)) : choices;
+    shown = q ? choices.filter(c => c.code.toLowerCase().startsWith(q) || `${c.title} ${c.meta} ${c.search || ''}`.toLowerCase().includes(q)) : choices;
     active = q ? Math.max(0, shown.findIndex(c => c.code.toLowerCase() === q)) : shown.findIndex(c => c.id === current.id);
     if (shown.length === 0) active = -1;
     let html = '';
@@ -1686,10 +1693,17 @@ function renderOptions() {
     </div>
 
     ${collapsible('disciplines', 'Disziplinen', '', `
-      <div class="dsb-box">
-        <div class="disc-name">Disziplinen nach DSB</div>
-        <div class="disc-meta">${DISCIPLINE_CATALOG.length} Disziplinen aus der DSB-Sportordnung und der RSB-Liste B – Auswahl beim Eintrag über Kennzahl oder Name.</div>
+      <div class="set-boxes" role="group" aria-label="Disziplin-Liste">
+        ${DISCIPLINE_SETS.map(set => {
+          const on = state.disciplineSets.includes(set.id);
+          return `
+          <button type="button" class="dsb-box set-box${on ? ' active' : ''}" data-disc-set="${set.id}" aria-pressed="${on}">
+            <div class="disc-name">${esc(set.name)}</div>
+            <div class="disc-meta">${DISCIPLINE_CATALOG.filter(c => c.set === set.id).length} Disziplinen · ${esc(set.info)}</div>
+          </button>`;
+        }).join('')}
       </div>
+      <p class="hint">Die gewählte Liste steht beim Eintrag zur Auswahl – über Kennzahl oder Name.</p>
       ${own.length ? `<div class="label own-label">Eigene Disziplinen</div>${items}` : ''}
       ${ui.editDiscId === 'new' ? `<div style="margin-top:12px">${discEditForm(null)}</div>` : ''}
       ${ui.editDiscId ? '' : '<div class="actions"><button class="btn primary" id="add-disc">+ Disziplin hinzufügen</button></div>'}`)}
@@ -1759,6 +1773,17 @@ function renderOptions() {
   });
 
   bindCompTypes();
+
+  // Entweder DSB oder BDS
+  view.querySelectorAll('[data-disc-set]').forEach(b => b.onclick = () => {
+    const id = b.dataset.discSet;
+    if (state.disciplineSets.includes(id)) return;
+    state.disciplineSets = [id];
+    state.settingsUpdatedAt = Date.now();
+    saveState();
+    render();
+    toast(DISCIPLINE_SETS.find(x => x.id === id).name);
+  });
 
   document.getElementById('age-class').onchange = e => {
     state.ageClassId = e.target.value || null;
