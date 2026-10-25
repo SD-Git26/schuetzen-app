@@ -1013,7 +1013,19 @@ dialog.confirm .actions { margin-top: 18px; }
 .join-row input { flex: 1; min-width: 0; }
 .found-club { margin-top: 18px; }
 .found-club > .disc-name { margin-bottom: 12px; }
-.card > .link-btn { display: block; margin-top: 8px; }
+.found-club-btn { display: block; margin-top: 8px; }
+.badge-active { background: var(--positive); color: #fff; }
+.club-active-hint { margin: 0 0 14px; }
+.club-item [data-activate] { margin-top: 10px; }
+/* „Vereinsauswertung ablehnen“ mit Info-Symbol; die Erklärung öffnet unter der ganzen Zeile */
+.share-row { position: relative; display: flex; align-items: center; gap: 2px; margin-top: 8px; }
+.switch.share-switch { margin: 0; }
+.share-row .info { position: static; margin: 0; }
+.share-row .info-btn { width: 30px; height: 30px; }
+.share-row .info-btn svg { width: 17px; height: 17px; }
+.share-row .info-pop { left: 0; right: auto; }
+/* Name des aktiven Vereins im Kopf des aufklappbaren Bereichs */
+.section-count { max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .club-code-big {
   margin: 12px 0;
   padding: 12px;

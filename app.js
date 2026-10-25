@@ -84,6 +84,8 @@ function normalizeState(s) {
   if (typeof s.shareWithClub !== 'boolean') s.shareWithClub = true;
   // Freigabe je Verein { clubId: true/false }; fehlt ein Verein, gilt shareWithClub
   if (!s.shareWithClubs || typeof s.shareWithClubs !== 'object' || Array.isArray(s.shareWithClubs)) s.shareWithClubs = {};
+  // Aktiver Verein (Optionen); null = der älteste Verein
+  if (typeof s.activeClubId !== 'string') s.activeClubId = null;
   const ageId = id => (ageClassById(id) ? ageClassById(id).id : null);
   s.ageClassId = ageId(s.ageClassId);
   s.results.forEach(r => { if (r.ageClassId) r.ageClassId = ageId(r.ageClassId); });
@@ -124,6 +126,7 @@ function mergeStates(a, b) {
     ageClassId: newer.ageClassId,
     shareWithClub: newer.shareWithClub,
     shareWithClubs: newer.shareWithClubs,
+    activeClubId: newer.activeClubId,
     settingsUpdatedAt: newer.settingsUpdatedAt,
   });
 }
@@ -349,16 +352,13 @@ document.getElementById('sync-status').addEventListener('click', () => {
 // [{ id, name, location, is_admin, status, joined_at, code (nur für Admins) }]
 let clubs = [];
 const clubsKey = userId => `hotshot-clubs-${userId}`;
-// Verein, für den zuletzt eingetragen wurde
-const lastClubKey = userId => `hotshot-last-club-${userId}`;
 
 function clubById(id) { return clubs.find(c => c.id === id) || null; }
 
-// Vorauswahl beim Eintrag: der zuletzt gewählte Verein, sonst der älteste
+// Aktiver Verein: für ihn zählen neue Ergebnisse. Festgelegt unter Optionen (state.activeClubId,
+// gilt auf allen Geräten), sonst der älteste Verein.
 function currentClubId() {
-  let last = null;
-  try { last = account && localStorage.getItem(lastClubKey(account.userId)); } catch (e) { /* kein Speicher */ }
-  return (clubById(last) || clubs[0] || { id: '' }).id;
+  return (clubById(state.activeClubId) || clubs[0] || { id: '' }).id;
 }
 
 // Zustimmung zur Vereinsanalyse für einen Verein; ohne eigene Angabe gilt die allgemeine
@@ -736,13 +736,6 @@ function freshDraft() {
   };
 }
 
-// Auswahl, für welchen Verein das Ergebnis zählt (nur bei mehreren Vereinen sichtbar)
-function clubOptions(selectedId) {
-  const opts = clubs.map(c => `<option value="${c.id}" ${c.id === selectedId ? 'selected' : ''}>${esc(c.name)}</option>`);
-  if (selectedId && !clubById(selectedId)) opts.push(`<option value="${esc(selectedId)}" selected>Früherer Verein</option>`);
-  return opts.join('');
-}
-
 // Auswahlliste der Altersklassen; long = mit Alter und Jahrgängen (in den Optionen)
 function ageClassOptions(selectedId, long) {
   return `<option value="">${long ? '– keine Angabe –' : '–'}</option>` + AGE_CLASSES.map(c =>
@@ -774,7 +767,7 @@ function renderEntry() {
   // auch wenn sie erst nach dem Start (Abgleich mit der Cloud) ankommen
   if (!ui.editId) {
     if (!dr.ageTouched) dr.ageClassId = state.ageClassId || '';
-    if (!dr.clubTouched) dr.clubId = currentClubId();
+    dr.clubId = currentClubId();
     if (!dr.discTouched) {
       const std = standardDisc();
       if (std && std.id !== dr.disciplineId) dr.disciplineId = std.id;
@@ -809,11 +802,6 @@ function renderEntry() {
         ${ui.adjustDisc ? '' : '<button type="button" class="link-btn" id="adjust-disc">Anpassen</button>'}
       </div>
       ${ui.adjustDisc ? `<div class="adjust-box">${discEditForm(d, true)}</div>` : ''}
-      ${clubs.length > 1 ? `
-      <div class="field">
-        <label for="entry-club">Verein</label>
-        <select id="entry-club">${clubOptions(dr.clubId)}</select>
-      </div>` : ''}
       <div class="row date-age">
         <div class="field">
           <label for="date">Datum</label>
@@ -919,13 +907,6 @@ function renderEntry() {
     document.getElementById('adjust-disc').onclick = () => { ui.adjustDisc = true; render(); };
   }
   document.getElementById('date').oninput = e => { dr.date = e.target.value; };
-  const clubEl = document.getElementById('entry-club');
-  if (clubEl) clubEl.onchange = e => {
-    dr.clubId = e.target.value;
-    dr.clubTouched = true;
-    // Gewählten Verein für die nächsten Einträge merken
-    if (!ui.editId && clubById(dr.clubId)) try { localStorage.setItem(lastClubKey(account.userId), dr.clubId); } catch (err) { /* dann nur bis zum Schließen */ }
-  };
   document.getElementById('entry-age').onchange = e => {
     dr.ageClassId = e.target.value;
     dr.ageTouched = true;
@@ -1699,6 +1680,8 @@ function renderOptions() {
       </div>
       <p class="hint">Ist beim Eintrag vorausgewählt; dort kannst du pro Ergebnis eine andere Klasse wählen. Maßgeblich ist das Alter, das du im Sportjahr erreichst.</p>`)}
 
+    ${clubsCard()}
+
     ${collapsible('backup', 'Datensicherung', '', `
       <p class="hint" style="margin:0 0 12px">Deine Daten werden automatisch in der Cloud gesichert und sind auf jedem Gerät verfügbar, auf dem du dich anmeldest. Zusätzlich kannst du hier eine Kopie als Datei speichern.</p>
       <div class="actions" style="margin-top:0">
@@ -1709,8 +1692,6 @@ function renderOptions() {
         <button class="btn" id="export-csv">Als CSV (Excel) exportieren</button>
       </div>
       <input type="file" id="import-file" accept="application/json,.json" hidden>`)}
-
-    ${clubsCard()}
 
     <div class="card">
       <h2>Konto</h2>
@@ -1847,6 +1828,7 @@ function renderOptions() {
       // Ältere Backups kennen die Vereinsanalyse-Einstellung noch nicht: die aktuelle bleibt dann erhalten
       if (typeof data.shareWithClub !== 'boolean') data.shareWithClub = state.shareWithClub;
       if (!data.shareWithClubs) data.shareWithClubs = state.shareWithClubs;
+      if (data.activeClubId === undefined) data.activeClubId = state.activeClubId;
       const loaded = normalizeState(data);
       // Alles Bisherige, was im Backup fehlt, als gelöscht vermerken; alles aus dem Backup gilt als neuester Stand
       const keep = new Set([...loaded.disciplines, ...loaded.competitionTypes, ...loaded.results].map(x => x.id));
@@ -1870,41 +1852,47 @@ function renderOptions() {
   };
 }
 
-// Optionen: Vereine mit Zustimmung zur Vereinsanalyse je Verein, Beitreten und Gründen
+// Optionen: Vereine mit aktivem Verein, Zustimmung zur Vereinsanalyse je Verein, Beitreten und Gründen
 function clubsCard() {
+  const activeId = currentClubId();
+  const several = clubs.length > 1;
   const items = clubs.map(c => {
     const share = sharesWith(c.id);
+    const active = c.id === activeId;
     return `
-      <div class="club-item">
+      <div class="club-item ${several && active ? 'is-active' : ''}">
         <div class="option-row">
           <div class="club-title">
-            <div class="disc-name">${esc(c.name)}${c.is_admin ? ' <span class="badge">Admin</span>' : ''}${c.status === 'locked' ? ' <span class="badge">gesperrt</span>' : ''}</div>
+            <div class="disc-name">${esc(c.name)}${several && active ? ' <span class="badge badge-active">aktiv</span>' : ''}${c.is_admin ? ' <span class="badge">Admin</span>' : ''}${c.status === 'locked' ? ' <span class="badge">gesperrt</span>' : ''}</div>
             ${c.location ? `<div class="disc-meta">${esc(c.location)}</div>` : ''}
           </div>
           <button type="button" class="link-btn danger-text" data-leave="${c.id}">Verlassen</button>
         </div>
+        ${several && !active ? `<button type="button" class="btn small" data-activate="${c.id}">Als aktiven Verein festlegen</button>` : ''}
         ${c.code ? `
         <div class="club-code-row">
           <span class="disc-meta">Vereinscode</span>
           <strong class="club-code">${esc(c.code)}</strong>
           <button type="button" class="link-btn" data-show-code="${c.id}">QR-Code</button>
         </div>` : ''}
-        <div class="option-row option-gap">
-          <span class="label" style="margin:0">Vereinsanalyse akzeptieren</span>
-          <div class="theme-toggle text-toggle" role="group" aria-label="Vereinsanalyse für ${esc(c.name)} akzeptieren">
-            ${[[true, 'Ja'], [false, 'Nein']].map(([v, l]) => `
-              <button type="button" data-share-club="${c.id}" data-share="${v}" aria-pressed="${share === v}" class="${share === v ? 'active' : ''}">${l}</button>`).join('')}
+        <div class="share-row">
+          <label class="switch subtle share-switch">
+            <input type="checkbox" data-share-club="${c.id}" ${share ? '' : 'checked'}>
+            <span>Vereinsauswertung ablehnen</span>
+          </label>
+          <div class="info">
+            <button type="button" class="info-btn" aria-label="Erklärung zu Vereinsauswertung ablehnen">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><path d="M12 11v6"/><circle cx="12" cy="7.5" r="0.6" fill="currentColor"/></svg>
+            </button>
+            <div class="info-pop" role="tooltip"><b>Ohne Häkchen</b> sehen die Admins dieses Vereins im Dashboard die Ergebnisse, die du für ihn einträgst – unter deinem Benutzernamen.<br><b>Mit Häkchen</b> sieht der Verein deine Ergebnisse nicht. In deinem Konto bleiben sie in jedem Fall gespeichert.</div>
           </div>
         </div>
-        <p class="hint">${share
-          ? 'Ergebnisse, die du für diesen Verein einträgst, erscheinen unter deinem Benutzernamen im Vereins-Dashboard.'
-          : 'Dieser Verein bekommt deine Ergebnisse nicht zu sehen. Sie bleiben in deinem Konto gesichert.'}</p>
       </div>`;
   }).join('');
 
-  return `
-    <div class="card">
-      <h2>${clubs.length > 1 ? 'Meine Vereine' : 'Mein Verein'}</h2>
+  const active = clubById(activeId);
+  return collapsible('clubs', several ? 'Meine Vereine' : 'Mein Verein', active ? esc(active.name) : '', `
+      ${several ? `<p class="hint club-active-hint">Neue Ergebnisse zählen für den <strong>aktiven Verein: ${esc(active.name)}</strong>. Schießt du für einen anderen Verein, lege ihn hier vorher als aktiv fest.</p>` : ''}
       ${items || '<p class="hint" style="margin:0">Du bist in keinem Verein. Tritt mit einem Vereinscode bei oder gründe einen neuen Verein.</p>'}
       ${ui.foundClub ? `
         <div class="disc-edit found-club">
@@ -1924,14 +1912,13 @@ function clubsCard() {
             <button type="button" class="btn" id="join-btn">Beitreten</button>
           </div>
         </div>
-        <button type="button" class="link-btn" id="found-club">+ Neuen Verein gründen</button>`}
-    </div>`;
+        <button type="button" class="link-btn found-club-btn" id="found-club">+ Neuen Verein gründen</button>`}`);
 }
 
 function bindClubsCard() {
-  view.querySelectorAll('[data-share-club]').forEach(b => b.onclick = () => {
+  view.querySelectorAll('[data-share-club]').forEach(b => b.onchange = () => {
     const id = b.dataset.shareClub;
-    const share = b.dataset.share === 'true';
+    const share = !b.checked; // Häkchen = Vereinsauswertung abgelehnt
     if (share === sharesWith(id)) return;
     state.shareWithClubs = { ...state.shareWithClubs, [id]: share };
     // Ältere App-Versionen auf anderen Geräten kennen nur die allgemeine Einstellung
@@ -1939,10 +1926,20 @@ function bindClubsCard() {
     state.settingsUpdatedAt = Date.now();
     saveState();
     render();
-    toast(share ? 'Vereinsanalyse akzeptiert' : 'Keine Daten mehr an diesen Verein');
+    toast(share ? 'Der Verein sieht deine Ergebnisse wieder' : 'Vereinsauswertung abgelehnt');
   });
 
   view.querySelectorAll('[data-show-code]').forEach(b => b.onclick = () => showClubCode(clubById(b.dataset.showCode), false));
+
+  view.querySelectorAll('[data-activate]').forEach(b => b.onclick = () => {
+    const c = clubById(b.dataset.activate);
+    if (!c) return;
+    state.activeClubId = c.id;
+    state.settingsUpdatedAt = Date.now();
+    saveState();
+    render();
+    toast(`Neue Ergebnisse zählen jetzt für „${c.name}“`);
+  });
 
   view.querySelectorAll('[data-leave]').forEach(b => b.onclick = async () => {
     const c = clubById(b.dataset.leave);
@@ -2003,7 +2000,7 @@ async function joinByCode(code) {
     if (!club) { toast('Der Vereinscode stimmt nicht'); return; }
     if (clubById(club.id)) { toast(`Du bist schon in „${club.name}“`); return; }
     const label = club.location ? `${club.name} (${club.location})` : club.name;
-    if (!(await askConfirm(`„${label}“ beitreten?\n\nErgebnisse, die du für diesen Verein einträgst, sieht der Vereins-Admin im Dashboard. Das kannst du unter Optionen bei „Vereinsanalyse akzeptieren“ jederzeit ändern.`, 'Beitreten'))) return;
+    if (!(await askConfirm(`„${label}“ beitreten?\n\nErgebnisse, die du für diesen Verein einträgst, sieht der Vereins-Admin im Dashboard. Möchtest du das nicht, setze unter Optionen → Meine Vereine das Häkchen „Vereinsauswertung ablehnen“.`, 'Beitreten'))) return;
     await Cloud.joinClub(code);
     await refreshClubs();
     render();
@@ -2459,7 +2456,6 @@ function endSession(message, keepData) {
       localStorage.removeItem(LAST_USER_KEY);
       localStorage.removeItem(lastDiscKey(account.userId));
       localStorage.removeItem(clubsKey(account.userId));
-      localStorage.removeItem(lastClubKey(account.userId));
     } catch (e) { /* egal */ }
   }
   account = null;
