@@ -651,6 +651,23 @@ function askConfirm(message, okLabel = 'Löschen') {
   });
 }
 
+// Wichtige Meldung, die man bestätigen muss (für Hinweise, die in einer kurzen Einblendung untergehen würden)
+function showNotice(title, text) {
+  return new Promise(resolve => {
+    const dlg = document.createElement('dialog');
+    dlg.className = 'confirm';
+    dlg.innerHTML = `
+      <p class="confirm-title">${esc(title)}</p>
+      <p class="confirm-text">${esc(text)}</p>
+      <div class="actions"><button type="button" class="btn primary" data-ok>OK</button></div>`;
+    const finish = () => { dlg.close(); dlg.remove(); resolve(); };
+    dlg.querySelector('[data-ok]').onclick = finish;
+    dlg.addEventListener('cancel', e => { e.preventDefault(); finish(); });
+    document.body.appendChild(dlg);
+    dlg.showModal();
+  });
+}
+
 let toastTimer = null;
 function toast(msg) {
   const el = document.getElementById('toast');
@@ -852,7 +869,7 @@ function renderEntry() {
 
       <div class="field note-field">
         <label for="note">Notiz</label>
-        <textarea id="note" rows="1" placeholder="optional">${esc(dr.note)}</textarea>
+        <textarea id="note" rows="1" placeholder="Besondere Hinweise">${esc(dr.note)}</textarea>
       </div>
 
       <div class="actions">
@@ -1754,7 +1771,10 @@ function renderOptions() {
       await Cloud.deleteMyAccount();
       endSession('Dein Konto wurde gelöscht.');
       await Cloud.signOut();
-    } catch (e) { toast(Cloud.errorText(e)); }
+    } catch (e) {
+      if (/HOTSHOT_LAST_ADMIN/.test(String(e && e.message))) showNotice('Konto kann nicht gelöscht werden', Cloud.errorText(e));
+      else toast(Cloud.errorText(e));
+    }
   };
 
   const addBtn = document.getElementById('add-disc');
@@ -1951,7 +1971,10 @@ function bindClubsCard() {
       await refreshClubs();
       render();
       toast(`Du hast „${c.name}“ verlassen`);
-    } catch (e) { toast(Cloud.errorText(e)); }
+    } catch (e) {
+      if (/HOTSHOT_LAST_ADMIN/.test(String(e && e.message))) showNotice('Verlassen nicht möglich', Cloud.errorText(e));
+      else toast(Cloud.errorText(e));
+    }
   });
 
   const joinBtn = document.getElementById('join-btn');

@@ -420,6 +420,29 @@ function colorOf(memberId) {
 function render() {
   if (!dash.me || !dash.clubId) return;
   ({ ranking: renderRanking, compare: renderCompare, members: renderMembers, club: renderClub })[dash.view]();
+  if (dash.view === 'ranking' || dash.view === 'members') showAdminNotice();
+}
+
+// Hinweis oben auf der Seite, solange der Verein nur einen Admin hat: Vergisst dieser sein Passwort
+// oder ist nicht mehr erreichbar, kommt niemand mehr ins Dashboard.
+function showAdminNotice() {
+  if (dash.members.filter(m => m.isAdmin).length !== 1) return;
+  const alone = dash.members.length < 2;
+  const onMembers = dash.view === 'members';
+  app.insertAdjacentHTML('afterbegin', `
+    <div class="card notice-card">
+      <b>Euer Verein hat nur einen Admin.</b>
+      ${alone ? 'Sobald sich weitere Mitglieder registriert haben, mach' : 'Mach'} am besten ein zweites Mitglied zum Admin${onMembers && !alone ? ' (Knopf „Zum Admin machen“ unten)' : ''}.
+      Sonst kommt niemand mehr ins Dashboard, wenn der einzige Admin sein Passwort vergisst oder nicht mehr erreichbar ist.
+      ${!onMembers && !alone ? '<button type="button" class="link-btn" id="notice-members">Zu den Mitgliedern</button>' : ''}
+    </div>`);
+  const btn = document.getElementById('notice-members');
+  if (btn) btn.onclick = () => {
+    dash.view = 'members';
+    renderHeader();
+    render();
+    window.scrollTo(0, 0);
+  };
 }
 
 function filterBar({ showKind = true } = {}) {
@@ -969,6 +992,12 @@ async function renderClub() {
     ${collapsible('export', 'Export', `
       <p class="hint" style="margin:0 0 12px">Alle Ergebnisse aller Mitglieder als CSV-Datei (z. B. für Excel).</p>
       <div class="actions" style="margin-top:0"><button class="btn" id="c-csv">Alle Ergebnisse exportieren</button></div>`)}
+    ${collapsible('dissolve', 'Verein auflösen', dash.members.length > 1 ? `
+      <p class="hint" style="margin:0">Auflösen geht nur, wenn du das letzte Mitglied bist. Der Verein hat noch ${dash.members.length - 1} weitere${dash.members.length === 2 ? 's Mitglied' : ' Mitglieder'}.
+        Möchtest du als Admin aufhören, mach unter „Mitglieder“ jemand anderen zum Admin.</p>` : `
+      <p class="hint" style="margin:0 0 12px">Du bist das letzte Mitglied. Beim Auflösen wird der Verein mit Vereinscode gelöscht.
+        Dein Konto und deine eigenen Ergebnisse in der App bleiben erhalten. Danach kannst du dein Konto in der App auch löschen.</p>
+      <div class="actions" style="margin-top:0"><button class="btn danger" id="c-dissolve">Verein auflösen</button></div>`)}
     <div class="card narrow">
       <div class="account-row">
         <div class="avatar" aria-hidden="true">${esc(dash.me.username.slice(0, 1).toUpperCase())}</div>
@@ -996,6 +1025,19 @@ async function renderClub() {
   };
   document.getElementById('logout').onclick = logoutDash;
   document.getElementById('c-csv').onclick = exportAllCsv;
+  const dissolveBtn = document.getElementById('c-dissolve');
+  if (dissolveBtn) dissolveBtn.onclick = async () => {
+    const typed = await dialog(`„${dash.clubName}“ auflösen?\n\nDer Verein und sein Vereinscode werden endgültig gelöscht. Dein Konto bleibt erhalten.\n\nZum Bestätigen den Vereinsnamen eintippen:`, 'Verein auflösen', { input: true, danger: true });
+    if (typed === null) return;
+    if (typed.trim() !== dash.clubName) { toast('Der Name stimmt nicht – nichts gelöscht'); return; }
+    try {
+      await Cloud.call('admin_dissolve_club', { club: dash.clubId });
+      toast('Verein aufgelöst');
+      dash.clubId = null;
+      dash.view = 'ranking';
+      await loadAll(dash.me.id);
+    } catch (e) { toast(Cloud.errorText(e)); }
+  };
 
   const club = dash.clubId;
   const codeEl = document.getElementById('c-code');

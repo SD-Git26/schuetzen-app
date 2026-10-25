@@ -57,7 +57,11 @@ const Cloud = (() => {
     if (/HOTSHOT_TERMS_REQUIRED/.test(m)) return 'Bitte die Nutzungsbedingungen und den AV-Vertrag akzeptieren';
     if (/HOTSHOT_TOO_MANY_CLUBS/.test(m)) return 'Gerade wurden sehr viele Vereine angelegt – bitte später erneut versuchen';
     if (/HOTSHOT_TOO_MANY_OWN_CLUBS/.test(m)) return 'Mit einem Konto lassen sich höchstens 3 Vereine gründen';
-    if (/HOTSHOT_LAST_ADMIN/.test(m)) return 'Du bist der letzte Admin dieses Vereins. Ernenne zuerst im Dashboard ein anderes Mitglied zum Admin.';
+    if (/HOTSHOT_LAST_ADMIN/.test(m)) {
+      const club = (m.match(/HOTSHOT_LAST_ADMIN:([^\n]*)/) || [])[1];
+      return `Du bist der einzige Admin von „${(club || 'deinem Verein').trim()}“. Mach zuerst im Dashboard unter „Mitglieder“ ein anderes Mitglied zum Admin. Bist du das letzte Mitglied, kannst du den Verein im Dashboard unter „Optionen“ auflösen.`;
+    }
+    if (/HOTSHOT_CLUB_NOT_EMPTY/.test(m)) return 'Der Verein hat noch weitere Mitglieder. Auflösen geht nur, wenn du das letzte Mitglied bist.';
     if (/HOTSHOT_INVALID_CODE/.test(m)) return 'Vereinscode: 6 bis 30 Zeichen, nur Buchstaben, Ziffern und Minus';
     if (/HOTSHOT_CODE_TAKEN/.test(m)) return 'Diesen Vereinscode benutzt schon ein anderer Verein';
     if (/HOTSHOT_RESET_OTHER_CLUB/.test(m)) return 'Dieses Mitglied ist auch in einem anderen Verein. Das Passwort kann nur der Betreiber von Hot Shot zurücksetzen.';
