@@ -686,6 +686,7 @@ const ui = {
   draft: null,          // Formular "Eintragen"
   editId: null,         // Ergebnis, das gerade bearbeitet wird
   historyFilter: 'all',
+  historyKind: 'all',   // Schießbuch: alle, nur Training oder nur Wettkampf
   analysisDiscId: null,
   period: 'all',
   kind: 'all',          // Analyse: alle, nur Training oder nur Wettkampf
@@ -1184,13 +1185,18 @@ function renderHistory() {
     .concat(sortedDisciplines().map(d => `<option value="${d.id}" ${ui.historyFilter === d.id ? 'selected' : ''}>${esc(d.name)}</option>`))
     .join('');
 
+  const kindOpts = KINDS.map(([key, label]) =>
+    `<option value="${key}" ${ui.historyKind === key ? 'selected' : ''}>${label}</option>`).join('');
+
   let list = state.results;
   if (ui.historyFilter !== 'all') list = list.filter(r => r.disciplineId === ui.historyFilter);
+  if (ui.historyKind !== 'all') list = list.filter(r => r.type === ui.historyKind);
   list = sortedResults(list).reverse();
 
   let body = '';
   if (list.length === 0) {
-    body = `<div class="card empty">Noch keine Ergebnisse${ui.historyFilter !== 'all' ? ' für diese Disziplin' : ''}.</div>`;
+    const what = ui.historyKind === 'competition' ? 'Wettkampfergebnisse' : ui.historyKind === 'training' ? 'Trainingsergebnisse' : 'Ergebnisse';
+    body = `<div class="card empty">Noch keine ${what}${ui.historyFilter !== 'all' ? ' für diese Disziplin' : ''}.</div>`;
   } else {
     let currentMonth = null;
     let group = '';
@@ -1225,10 +1231,14 @@ function renderHistory() {
   }
 
   view.innerHTML = `
-    <div class="field"><select id="hist-filter" aria-label="Disziplin filtern">${filterOpts}</select></div>
+    <div class="row field hist-filters">
+      <select id="hist-filter" aria-label="Disziplin filtern">${filterOpts}</select>
+      <select id="hist-kind" aria-label="Training oder Wettkampf">${kindOpts}</select>
+    </div>
     ${body}`;
 
   document.getElementById('hist-filter').onchange = e => { ui.historyFilter = e.target.value; render(); };
+  document.getElementById('hist-kind').onchange = e => { ui.historyKind = e.target.value; render(); };
 
   view.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => {
     const r = state.results.find(x => x.id === b.dataset.edit);
@@ -2417,7 +2427,7 @@ async function startSession(user, cached) {
   const cachedClubs = readJSON(clubsKey(account.userId));
   clubs = Array.isArray(cachedClubs) ? cachedClubs : [];
   sync.lastSync = null;
-  Object.assign(ui, { tab: 'entry', draft: null, editId: null, historyFilter: 'all', analysisDiscId: null, selectedPoint: null, editDiscId: null, adjustDisc: false, editCompId: null, foundClub: false });
+  Object.assign(ui, { tab: 'entry', draft: null, editId: null, historyFilter: 'all', historyKind: 'all', analysisDiscId: null, selectedPoint: null, editDiscId: null, adjustDisc: false, editCompId: null, foundClub: false });
   document.body.classList.remove('logged-out');
   setTab('entry');
   setSyncStatus(navigator.onLine ? 'idle' : 'offline');

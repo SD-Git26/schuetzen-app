@@ -1029,6 +1029,10 @@ input[type="checkbox"].toggle:focus-visible { outline: 2px solid var(--accent); 
 /* „Einzelserien eintragen“ sieht aus wie „Wettkampf“ darunter */
 .series-toggle { margin-top: 16px; }
 
+/* Schießbuch: Disziplin (breiter) und Training/Wettkampf nebeneinander */
+.hist-filters > #hist-filter { flex: 2; }
+.hist-filters > #hist-kind { flex: 1; }
+
 /* Vereine */
 .danger-text { color: var(--danger); }
 .optional { font-weight: 400; color: var(--text-muted); }
