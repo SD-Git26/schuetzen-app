@@ -508,20 +508,15 @@ select { --picker-bg: var(--field); --option-hover: var(--surface); }
 }
 
 /* Aufklappbarer Wettkampf-Bereich */
-.comp-box {
-  margin-top: 18px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-}
-
-.comp-box.open { border-color: var(--series-2); }
+/* Ohne Rahmen: der Schieberegler steht bündig unter „Einzelserien eintragen“, die Felder klappen frei darunter auf */
+.comp-box { margin-top: 14px; }
 
 .comp-toggle {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   margin: 0;
-  padding: 12px 14px;
+  padding: 0;
   font-size: 15px;
   font-weight: 600;
   color: var(--text);
@@ -529,7 +524,12 @@ select { --picker-bg: var(--field); --option-hover: var(--surface); }
 
 .comp-toggle input { width: 20px; height: 20px; min-height: 0; padding: 0; accent-color: var(--series-2); cursor: pointer; }
 
-.comp-fields { padding: 0 14px 14px; }
+.comp-fields { padding: 14px 0 0; }
+/* Art und Ort leicht orange, damit man sieht, dass sie zum Wettkampf gehören */
+.comp-fields input, .comp-fields select {
+  background-color: color-mix(in srgb, var(--series-2) 12%, var(--field));
+  border-color: color-mix(in srgb, var(--series-2) 45%, var(--field-border));
+}
 
 .tag-comp {
   display: inline-block;
@@ -991,6 +991,43 @@ dialog.confirm::backdrop { background: rgb(0 0 0 / .5); }
 dialog.confirm .actions { margin-top: 18px; }
 
 .btn.danger-fill { background: var(--danger); border-color: var(--danger); color: #fff; }
+
+/* Schieberegler (Kontrollkästchen mit class="toggle"), z. B. „Einzelserien eintragen“ und „Wettkampf“ */
+input[type="checkbox"].toggle {
+  -webkit-appearance: none;
+  appearance: none;
+  position: relative;
+  flex-shrink: 0;
+  width: 42px;
+  height: 24px;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--field-border);
+  cursor: pointer;
+  transition: background .2s;
+}
+input[type="checkbox"].toggle::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgb(0 0 0 / .35);
+  transition: transform .2s;
+}
+input[type="checkbox"].toggle:checked { background: var(--accent); }
+input[type="checkbox"].toggle:checked::after { transform: translateX(18px); }
+input[type="checkbox"].toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.comp-toggle input[type="checkbox"].toggle:checked { background: var(--series-2); }
+.comp-toggle { cursor: pointer; }
+/* „Einzelserien eintragen“ sieht aus wie „Wettkampf“ darunter */
+.series-toggle { margin-top: 16px; }
 
 /* Vereine */
 .danger-text { color: var(--danger); }

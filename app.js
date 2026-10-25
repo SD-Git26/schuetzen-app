@@ -838,18 +838,18 @@ function renderEntry() {
         <div class="series-grid" style="grid-template-columns:repeat(${d.series <= 4 ? d.series : (d.series % 4 === 0 ? 4 : 3)}, 1fr)">${seriesInputs}</div>
         <div class="sum-line"><span class="label">Gesamt</span><span class="sum" id="sum">–</span></div>`}
 
-      <label class="switch subtle">
-        <input type="checkbox" id="total-only" ${dr.totalOnly ? '' : 'checked'}>
+      <label class="comp-toggle series-toggle">
+        <input type="checkbox" class="toggle" role="switch" id="total-only" ${dr.totalOnly ? '' : 'checked'}>
         <span>Einzelserien eintragen</span>
       </label>
 
       <div id="entry-error" class="error" hidden></div>
 
       <div class="comp-box ${dr.isComp ? 'open' : ''}">
-        <div class="comp-toggle">
-          <input type="checkbox" id="is-comp" aria-label="Wettkampf" ${dr.isComp ? 'checked' : ''}>
+        <label class="comp-toggle">
+          <input type="checkbox" class="toggle" role="switch" id="is-comp" ${dr.isComp ? 'checked' : ''}>
           <span>Wettkampf</span>
-        </div>
+        </label>
         ${dr.isComp ? `
         <div class="comp-fields">
           <div class="field">
@@ -1722,7 +1722,7 @@ function renderOptions() {
       <div class="actions">
         <button class="btn ${sync.status === 'auth' ? 'primary' : ''}" id="logout">${sync.status === 'auth' ? 'Neu anmelden' : 'Abmelden'}</button>
       </div>
-      ${account.isAdmin ? `<a class="link-subtle" href="dashboard/" target="_blank" rel="noopener">Vereins-Dashboard öffnen ↗</a>` : ''}
+      ${dashboardLink()}
       <button type="button" class="link-btn danger-text" id="delete-account">Konto löschen</button>
     </div>
 
@@ -1870,6 +1870,15 @@ function renderOptions() {
       fileInput.value = '';
     }
   };
+}
+
+// Link zum Vereins-Dashboard: öffnet den aktiven Verein, wenn man dort Admin ist, sonst den ersten Verein mit Admin-Rechten
+function dashboardLink() {
+  const active = clubById(currentClubId());
+  const club = active && active.is_admin ? active : clubs.find(c => c.is_admin);
+  if (!club) return account.isAdmin ? `<a class="link-subtle" href="dashboard/" target="_blank" rel="noopener">Vereins-Dashboard öffnen ↗</a>` : '';
+  const href = new URL('dashboard/?club=' + encodeURIComponent(club.id), document.baseURI).href;
+  return `<a class="link-subtle" href="${esc(href)}" target="_blank" rel="noopener">Dashboard „${esc(club.name)}“ öffnen ↗</a>`;
 }
 
 // Optionen: Vereine mit aktivem Verein, Zustimmung zur Vereinsanalyse je Verein, Beitreten und Gründen

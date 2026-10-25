@@ -12,6 +12,19 @@ const KINDS = [['all', 'Alle'], ['training', 'Training'], ['competition', 'Wettk
 // Zuletzt gewählter Verein (für Admins mehrerer Vereine)
 const CLUB_KEY = 'hotshot-dash-club-id';
 
+// Verein aus dem Link der App (…/dashboard/?club=…); wird nach dem Anmelden übernommen
+let requestedClub = (() => {
+  try {
+    const params = new URLSearchParams(location.search);
+    const id = params.get('club');
+    if (!id) return null;
+    params.delete('club');
+    const rest = params.toString();
+    history.replaceState(null, '', location.pathname + (rest ? '?' + rest : '') + location.hash);
+    return id;
+  } catch (e) { return null; }
+})();
+
 const dash = {
   me: null,          // eigenes Profil
   clubs: [],         // eigene Vereine aus my_clubs()
@@ -258,6 +271,13 @@ async function loadAll(userId, { silent = false } = {}) {
   dash.me = me;
   dash.clubs = clubs;
   const admin = adminClubs();
+  // Aus der App geöffnet (…/dashboard/?club=…): gleich diesen Verein zeigen, wenn man dort Admin ist
+  if (requestedClub && admin.some(c => c.id === requestedClub)) {
+    dash.clubId = requestedClub;
+    dash.sig = null;
+    try { localStorage.setItem(CLUB_KEY, dash.clubId); } catch (e) { /* dann nur bis zum Neuladen */ }
+  }
+  requestedClub = null;
   if (!admin.some(c => c.id === dash.clubId)) {
     let saved = null;
     try { saved = localStorage.getItem(CLUB_KEY); } catch (e) { /* kein Speicher */ }
