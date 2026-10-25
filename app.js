@@ -735,10 +735,19 @@ function knownLocations() {
   return [...set].sort((a, b) => a.localeCompare(b, 'de'));
 }
 
+// Eigene Disziplinen gehören immer dazu, aus den Listen nur die unter Optionen gewählte (DSB oder BDS)
+function inActiveSet(id) {
+  const c = DISCIPLINE_CATALOG.find(x => x.id === id);
+  return !c || state.disciplineSets.includes(c.set);
+}
+
+// Standard, sonst zuletzt gewählte, sonst erste Disziplin der gewählten Liste
 function standardDisc() {
   let last = null;
   try { last = account && localStorage.getItem(lastDiscKey(account.userId)); } catch (e) { /* kein Speicher */ }
-  return discById(state.defaultDisciplineId) || discById(last) || discById(DEFAULT_DISC_ID);
+  const first = DISCIPLINE_CATALOG.find(c => state.disciplineSets.includes(c.set));
+  return [state.defaultDisciplineId, last, DEFAULT_DISC_ID, first && first.id]
+    .filter(id => id && inActiveSet(id)).map(discById).find(Boolean);
 }
 
 function freshDraft() {
@@ -790,7 +799,8 @@ function renderEntry() {
   if (!ui.editId) {
     if (!dr.ageTouched) dr.ageClassId = state.ageClassId || '';
     dr.clubId = currentClubId();
-    if (!dr.discTouched) {
+    // Nach dem Wechsel der Liste unter Optionen: Disziplin aus der anderen Liste nicht stehen lassen
+    if (!dr.discTouched || !inActiveSet(dr.disciplineId)) {
       const std = standardDisc();
       if (std && std.id !== dr.disciplineId) dr.disciplineId = std.id;
     }
@@ -1059,11 +1069,11 @@ function renderEntry() {
 }
 
 // Einträge der Disziplin-Auswahl: eigene Disziplinen zuerst, dann die DSB/RSB-Liste
-function discChoices(currentId) {
+function discChoices(keepId) {
   const own = state.disciplines.filter(d => !isCatalogId(d.id))
     .map(d => ({ id: d.id, code: '', title: d.name, name: d.name, meta: '', group: 'Eigene Disziplinen' }));
-  // Nur die unter Optionen gewählten Listen; die aktuell gewählte Disziplin bleibt immer drin
-  const catalog = DISCIPLINE_CATALOG.filter(c => state.disciplineSets.includes(c.set) || c.id === currentId).map(c => ({
+  // Nur die unter Optionen gewählte Liste; beim Bearbeiten eines alten Ergebnisses bleibt dessen Disziplin drin
+  const catalog = DISCIPLINE_CATALOG.filter(c => inActiveSet(c.id) || c.id === keepId).map(c => ({
     id: c.id,
     code: c.code,
     title: c.title,
@@ -1079,7 +1089,7 @@ function discChoices(currentId) {
 // Disziplin-Auswahl zum Aufklappen und Tippen: „2.11“ springt auf genau diese Kennzahl,
 // ein Wortteil wie „auflage“ filtert die Liste. Übernommen wird per Antippen oder Enter.
 function bindDiscCombo(input, list, current, onPick) {
-  const choices = discChoices(current.id);
+  const choices = discChoices(ui.editId ? current.id : null);
   let shown = [];
   let active = -1;
   const norm = s => s.trim().toLowerCase().replace(',', '.');
