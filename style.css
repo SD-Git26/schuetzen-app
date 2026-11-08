@@ -1,13 +1,13 @@
-:root {
+﻿:root {
   --bg: #f4f6f9;
   --surface: #ffffff;
   --surface-2: #eef1f5;
   --text: #18202a;
   --text-muted: #5d6b7c;
   --border: #d9dfe7;
-  --accent: #1d5fd1;
+  --accent: #3d6676;
   --accent-text: #ffffff;
-  --series-1: #1d5fd1;
+  --series-1: #3d6676;
   --series-2: #e0751b;
   --positive: #16803c;
   --negative: #c0392b;
@@ -28,9 +28,9 @@
     --text: #e8edf3;
     --text-muted: #96a3b4;
     --border: #2f3844;
-    --accent: #5b9bff;
-    --accent-text: #0b1220;
-    --series-1: #5b9bff;
+    --accent: #55818f;
+    --accent-text: #ffffff;
+    --series-1: #55818f;
     --series-2: #ff9d4d;
     --positive: #4cc27a;
     --negative: #ff7a6b;
@@ -49,9 +49,9 @@
   --text: #e8edf3;
   --text-muted: #96a3b4;
   --border: #2f3844;
-  --accent: #5b9bff;
-  --accent-text: #0b1220;
-  --series-1: #5b9bff;
+  --accent: #55818f;
+  --accent-text: #ffffff;
+  --series-1: #55818f;
   --series-2: #ff9d4d;
   --positive: #4cc27a;
   --negative: #ff7a6b;
@@ -423,6 +423,8 @@ select { --picker-bg: var(--field); --option-hover: var(--surface); }
   letter-spacing: .05em;
   text-transform: uppercase;
 }
+
+.combo-list.flat .combo-group { position: static; }
 
 .combo-opt {
   display: flex;

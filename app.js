@@ -1206,6 +1206,12 @@ function bindDiscCombo(input, list, current, onPick) {
         </div>`;
     });
     list.innerHTML = html || '<div class="combo-empty">Keine Disziplin gefunden</div>';
+    // Überschriften bleiben beim Scrollen oben stehen – aber nur, wenn die Liste lang genug ist, dass auch die
+    // letzte Überschrift nach oben rutschen kann. Sonst bliebe bei kurzen Listen die erste falsch stehen.
+    list.classList.add('flat');
+    const heads = list.querySelectorAll('.combo-group');
+    const last = heads[heads.length - 1];
+    list.classList.toggle('flat', heads.length > 1 && last.offsetTop > list.scrollHeight - list.clientHeight);
     mark();
   }
 
