@@ -1008,6 +1008,22 @@ dialog.confirm::backdrop { background: rgb(0 0 0 / .5); }
 .confirm-text { margin: 0 0 8px; font-size: 14px; color: var(--text-muted); }
 dialog.confirm .actions { margin-top: 18px; }
 
+/* Vorauswahl der Disziplinen (Optionen → Disziplinen) */
+dialog.pick-dialog { width: min(480px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); display: flex; flex-direction: column; }
+dialog.pick-dialog:not([open]) { display: none; }
+.pick-search { width: 100%; margin: 6px 0 8px; }
+.pick-tools { display: flex; align-items: center; gap: 16px; margin-bottom: 8px; font-size: 14px; }
+.pick-count { margin-left: auto; color: var(--text-muted); font-size: 13px; }
+.pick-list { flex: 1 1 auto; min-height: 120px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius); overscroll-behavior: contain; outline: none; }
+.pick-group[hidden], .pick-opt[hidden] { display: none; }
+.pick-head, .pick-opt { display: flex; align-items: center; gap: 10px; padding: 9px 12px; cursor: pointer; }
+.pick-head { position: sticky; top: 0; z-index: 1; background: var(--field-raised, var(--surface)); font-weight: 700; font-size: 14px; border-bottom: 1px solid var(--border); }
+.pick-opt { font-size: 14px; border-bottom: 1px solid var(--border); }
+.pick-head input, .pick-opt input { width: 20px; height: 20px; min-height: 0; margin: 0; flex-shrink: 0; accent-color: var(--accent, currentColor); }
+.pick-title { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.pick-title small { display: block; color: var(--text-muted); font-size: 12px; }
+dialog.pick-dialog .actions { margin-top: 12px; }
+
 .btn.danger-fill { background: var(--danger); border-color: var(--danger); color: #fff; }
 
 /* Schieberegler (Kontrollkästchen mit class="toggle"), z. B. „Einzelserien eintragen“ und „Wettkampf“ */

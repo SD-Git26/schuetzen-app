@@ -82,6 +82,15 @@ function normalizeState(s) {
   // Gewählte Disziplin-Liste (Optionen): genau eine, DSB oder BDS; ohne Angabe (ältere Stände) DSB
   const set = Array.isArray(s.disciplineSets) && DISCIPLINE_SETS.find(x => s.disciplineSets.includes(x.id));
   s.disciplineSets = [set ? set.id : 'dsb'];
+  // Vorauswahl je Liste { dsb: [IDs], bds: [IDs] } für das Dropdown beim Eintrag; fehlt eine Liste, gelten alle
+  const picks = {};
+  if (s.disciplinePicks && typeof s.disciplinePicks === 'object' && !Array.isArray(s.disciplinePicks)) {
+    DISCIPLINE_SETS.forEach(x => {
+      const ids = s.disciplinePicks[x.id];
+      if (Array.isArray(ids)) picks[x.id] = ids.filter(id => DISCIPLINE_CATALOG.some(c => c.id === id && c.set === x.id));
+    });
+  }
+  s.disciplinePicks = picks;
   // Entfallene Altersklassen durch ihren Ersatz ersetzen
   // Freigabe für das Vereins-Dashboard; ohne Angabe (ältere Stände) gilt sie als erteilt
   if (typeof s.shareWithClub !== 'boolean') s.shareWithClub = true;
@@ -128,6 +137,7 @@ function mergeStates(a, b) {
     defaultDisciplineId: newer.defaultDisciplineId,
     ageClassId: newer.ageClassId,
     disciplineSets: newer.disciplineSets,
+    disciplinePicks: newer.disciplinePicks,
     shareWithClub: newer.shareWithClub,
     shareWithClubs: newer.shareWithClubs,
     activeClubId: newer.activeClubId,
@@ -672,6 +682,88 @@ function showNotice(title, text) {
   });
 }
 
+// Vorauswahl einer Disziplin-Liste (Optionen → Disziplinen): welche Disziplinen das Dropdown beim Eintrag zeigt.
+// Liefert die angehakten IDs oder null bei Abbrechen.
+function pickDisciplines(setId) {
+  return new Promise(resolve => {
+    const set = DISCIPLINE_SETS.find(x => x.id === setId);
+    const list = DISCIPLINE_CATALOG.filter(c => c.set === setId);
+    const saved = state.disciplinePicks[setId];
+    const chosen = new Set(saved || list.map(c => c.id));
+    const groups = [];
+    list.forEach(c => {
+      let g = groups[groups.length - 1];
+      if (!g || g.name !== c.group) groups.push(g = { name: c.group, items: [] });
+      g.items.push(c);
+    });
+    const dlg = document.createElement('dialog');
+    dlg.className = 'confirm pick-dialog';
+    dlg.innerHTML = `
+      <p class="confirm-title">${esc(set.name)}</p>
+      <p class="confirm-text">Hake an, welche Disziplinen beim Eintrag zur Auswahl stehen.</p>
+      <input type="search" class="pick-search" placeholder="Suchen (Kennzahl oder Name)" aria-label="Disziplin suchen">
+      <div class="pick-tools">
+        <button type="button" class="link-btn" data-all>Alle</button>
+        <button type="button" class="link-btn" data-none>Keine</button>
+        <span class="pick-count" aria-live="polite"></span>
+      </div>
+      <div class="pick-list" tabindex="-1" autofocus>
+        ${groups.map((g, gi) => `
+          <div class="pick-group" data-g="${gi}">
+            <label class="pick-head"><input type="checkbox" data-group="${gi}"><span>${esc(g.name.replace(/^BDS · /, ''))}</span></label>
+            ${g.items.map(c => `
+              <label class="pick-opt" data-search="${esc(`${c.code} ${c.title} ${c.group} ${c.distance}`.toLowerCase())}">
+                <input type="checkbox" value="${esc(c.id)}" data-gi="${gi}" ${chosen.has(c.id) ? 'checked' : ''}>
+                <span class="combo-code">${esc(c.code)}</span>
+                <span class="pick-title">${esc(c.title)}${c.distance ? `<small>${esc(c.distance)}</small>` : ''}</span>
+              </label>`).join('')}
+          </div>`).join('')}
+      </div>
+      <div class="actions">
+        <button type="button" class="btn" data-answer="no">Abbrechen</button>
+        <button type="button" class="btn primary" data-answer="yes">Übernehmen</button>
+      </div>`;
+    const boxes = [...dlg.querySelectorAll('.pick-opt input')];
+    const okBtn = dlg.querySelector('[data-answer="yes"]');
+    function refresh() {
+      const n = boxes.filter(b => b.checked).length;
+      dlg.querySelector('.pick-count').textContent = `${n} von ${boxes.length} ausgewählt`;
+      okBtn.disabled = n === 0;
+      dlg.querySelectorAll('[data-group]').forEach(h => {
+        const own = boxes.filter(b => b.dataset.gi === h.dataset.group);
+        const on = own.filter(b => b.checked).length;
+        h.checked = on === own.length;
+        h.indeterminate = on > 0 && on < own.length;
+      });
+    }
+    // Häkchen setzen gilt nur für die gerade sichtbaren (nach Suche gefilterten) Einträge
+    const visible = b => !b.closest('.pick-opt').hidden;
+    boxes.forEach(b => b.onchange = refresh);
+    dlg.querySelectorAll('[data-group]').forEach(h => h.onchange = () => {
+      boxes.filter(b => b.dataset.gi === h.dataset.group && visible(b)).forEach(b => { b.checked = h.checked; });
+      refresh();
+    });
+    dlg.querySelector('[data-all]').onclick = () => { boxes.filter(visible).forEach(b => { b.checked = true; }); refresh(); };
+    dlg.querySelector('[data-none]').onclick = () => { boxes.filter(visible).forEach(b => { b.checked = false; }); refresh(); };
+    dlg.querySelector('.pick-search').oninput = e => {
+      const q = e.target.value.trim().toLowerCase().replace(',', '.');
+      dlg.querySelectorAll('.pick-opt').forEach(o => { o.hidden = !!q && !o.dataset.search.includes(q); });
+      dlg.querySelectorAll('.pick-group').forEach(g => { g.hidden = !g.querySelector('.pick-opt:not([hidden])'); });
+    };
+    const finish = answer => {
+      dlg.close();
+      dlg.remove();
+      resolve(answer ? boxes.filter(b => b.checked).map(b => b.value) : null);
+    };
+    dlg.querySelectorAll('[data-answer]').forEach(b => b.onclick = () => finish(b.dataset.answer === 'yes'));
+    dlg.addEventListener('cancel', e => { e.preventDefault(); finish(false); });
+    refresh();
+    document.body.appendChild(dlg);
+    dlg.showModal();
+    dlg.querySelector('.pick-list').scrollTop = 0;
+  });
+}
+
 let toastTimer = null;
 function toast(msg) {
   const el = document.getElementById('toast');
@@ -736,16 +828,20 @@ function knownLocations() {
 }
 
 // Eigene Disziplinen gehören immer dazu, aus den Listen nur die unter Optionen gewählte (DSB oder BDS)
+// und davon nur die dort vorausgewählten
 function inActiveSet(id) {
   const c = DISCIPLINE_CATALOG.find(x => x.id === id);
-  return !c || state.disciplineSets.includes(c.set);
+  if (!c) return true;
+  if (!state.disciplineSets.includes(c.set)) return false;
+  const picks = state.disciplinePicks[c.set];
+  return !picks || picks.includes(c.id);
 }
 
 // Standard, sonst zuletzt gewählte, sonst erste Disziplin der gewählten Liste
 function standardDisc() {
   let last = null;
   try { last = account && localStorage.getItem(lastDiscKey(account.userId)); } catch (e) { /* kein Speicher */ }
-  const first = DISCIPLINE_CATALOG.find(c => state.disciplineSets.includes(c.set));
+  const first = DISCIPLINE_CATALOG.find(c => inActiveSet(c.id));
   return [state.defaultDisciplineId, last, DEFAULT_DISC_ID, first && first.id]
     .filter(id => id && inActiveSet(id)).map(discById).find(Boolean);
 }
@@ -1706,14 +1802,16 @@ function renderOptions() {
       <div class="set-boxes" role="group" aria-label="Disziplin-Liste">
         ${DISCIPLINE_SETS.map(set => {
           const on = state.disciplineSets.includes(set.id);
+          const total = DISCIPLINE_CATALOG.filter(c => c.set === set.id).length;
+          const picks = state.disciplinePicks[set.id];
           return `
           <button type="button" class="dsb-box set-box${on ? ' active' : ''}" data-disc-set="${set.id}" aria-pressed="${on}">
             <div class="disc-name">${esc(set.name)}</div>
-            <div class="disc-meta">${DISCIPLINE_CATALOG.filter(c => c.set === set.id).length} Disziplinen · ${esc(set.info)}</div>
+            <div class="disc-meta">${picks ? `${picks.length} von ${total} ausgewählt` : `${total} Disziplinen`} · ${esc(set.info)}</div>
           </button>`;
         }).join('')}
       </div>
-      <p class="hint">Die gewählte Liste steht beim Eintrag zur Auswahl – über Kennzahl oder Name.</p>
+      <p class="hint">Tippe auf eine Liste und hake an, welche Disziplinen beim Eintrag zur Auswahl stehen.</p>
       ${own.length ? `<div class="label own-label">Eigene Disziplinen</div>${items}` : ''}
       ${ui.editDiscId === 'new' ? `<div style="margin-top:12px">${discEditForm(null)}</div>` : ''}
       ${ui.editDiscId ? '' : '<div class="actions"><button class="btn primary" id="add-disc">+ Disziplin hinzufügen</button></div>'}`)}
@@ -1784,15 +1882,18 @@ function renderOptions() {
 
   bindCompTypes();
 
-  // Entweder DSB oder BDS
-  view.querySelectorAll('[data-disc-set]').forEach(b => b.onclick = () => {
+  // Entweder DSB oder BDS; beim Antippen öffnet sich die Vorauswahl, gewechselt wird erst mit „Übernehmen“
+  view.querySelectorAll('[data-disc-set]').forEach(b => b.onclick = async () => {
     const id = b.dataset.discSet;
-    if (state.disciplineSets.includes(id)) return;
+    const picks = await pickDisciplines(id);
+    if (!picks) return;
+    const all = picks.length === DISCIPLINE_CATALOG.filter(c => c.set === id).length;
     state.disciplineSets = [id];
+    if (all) delete state.disciplinePicks[id]; else state.disciplinePicks[id] = picks;
     state.settingsUpdatedAt = Date.now();
     saveState();
     render();
-    toast(DISCIPLINE_SETS.find(x => x.id === id).name);
+    toast(`${DISCIPLINE_SETS.find(x => x.id === id).name}: ${all ? 'alle' : picks.length} ausgewählt`);
   });
 
   document.getElementById('age-class').onchange = e => {
